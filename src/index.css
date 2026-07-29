@@ -22,6 +22,12 @@ body {
   text-transform: uppercase;
   pointer-events: none;
   mix-blend-mode: screen;
+  animation: hud-arrival 700ms 1.4s both ease-out;
+}
+
+@keyframes hud-arrival {
+  from { opacity: 0; transform: translateY(7px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .hud .dot { width: 6px; height: 6px; border-radius: 50%; background: #3a3a3a; }
@@ -85,4 +91,8 @@ body {
 
   .hud .hint,
   .hud > span:nth-child(4) { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud { animation: none; }
 }

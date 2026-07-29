@@ -4,6 +4,7 @@ import { Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
 import { BPM_MAX, BPM_MIN, live, useStore } from '../state/store'
 import { BODY_W } from './layout'
+import { INTRO_DISABLED } from './assemblyMotion'
 
 // A scene-space tempo scale, inspired by old calibration matrices rather than
 // a flat HUD. Everything here is rendered by WebGL: instanced phosphor dots,
@@ -23,6 +24,9 @@ const ARROW_X = LABEL_X + 0.85
 const DOT_Z = -0.7
 const RETRACTED_X = 0.38
 const RETRACTED_SCALE = [RETRACTED_X, 1, 1]
+const INTRO_EXPANDED_X = 1.72
+const INTRO_EXPANDED_SCALE = [INTRO_EXPANDED_X, 1, 1]
+const INTRO_DURATION = 1.75
 
 const yForBpm = (bpm) =>
   THREE.MathUtils.mapLinear(bpm, BPM_MIN, BPM_MAX, GRID_BOTTOM, GRID_TOP)
@@ -216,6 +220,8 @@ function Arrow({ side, groupRef }) {
 export default function TempoMatrix() {
   const { bpm, pattern, track, playing } = useStore()
   const reveal = useRef()
+  const introStartedAt = useRef(null)
+  const introSettled = useRef(INTRO_DISABLED)
   const leftArrow = useRef()
   const rightArrow = useRef()
   const stepRail = useRef()
@@ -230,12 +236,29 @@ export default function TempoMatrix() {
 
   useFrame((_, delta) => {
     if (reveal.current) {
-      reveal.current.scale.x = THREE.MathUtils.damp(
-        reveal.current.scale.x,
-        playing ? 1 : RETRACTED_X,
-        playing ? 6.5 : 8,
-        delta,
-      )
+      const targetX = playing ? 1 : RETRACTED_X
+      if (!introSettled.current) {
+        if (introStartedAt.current === null) introStartedAt.current = _.clock.elapsedTime
+        const raw = THREE.MathUtils.clamp(
+          (_.clock.elapsedTime - introStartedAt.current) / INTRO_DURATION,
+          0,
+          1,
+        )
+        const eased = raw * raw * (3 - 2 * raw)
+        reveal.current.scale.x = THREE.MathUtils.lerp(
+          INTRO_EXPANDED_X,
+          targetX,
+          eased,
+        )
+        if (raw === 1) introSettled.current = true
+      } else {
+        reveal.current.scale.x = THREE.MathUtils.damp(
+          reveal.current.scale.x,
+          targetX,
+          playing ? 6.5 : 8,
+          delta,
+        )
+      }
     }
     currentY.current = THREE.MathUtils.damp(currentY.current, targetY, 10, delta)
     if (leftArrow.current) leftArrow.current.position.y = currentY.current
@@ -244,7 +267,10 @@ export default function TempoMatrix() {
   })
 
   return (
-    <group ref={reveal} scale={RETRACTED_SCALE}>
+    <group
+      ref={reveal}
+      scale={INTRO_DISABLED ? RETRACTED_SCALE : INTRO_EXPANDED_SCALE}
+    >
       <primitive object={matrices.left} />
       <primitive object={matrices.right} />
       {TICKS.map((value, row) => (

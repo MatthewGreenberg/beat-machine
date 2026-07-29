@@ -158,6 +158,7 @@ export default function Keys() {
       {TRACKS.map((t, i) => (
         <Keycap
           key={t.id}
+          introIndex={i}
           position={[keyX(TRACK_KEYS[i]), keyY(0), CAP_Z]}
           height={0.86}
           color={track === t.id ? keys.modifierActive : keys.modifier}
@@ -174,6 +175,7 @@ export default function Keys() {
         </Keycap>
       ))}
       <Keycap
+        introIndex={4}
         position={[keyX(SWING_KEY), keyY(0), CAP_Z]}
         height={0.86}
         color={keys.modifier}
@@ -192,6 +194,7 @@ export default function Keys() {
         return (
           <Keycap
             key={i}
+            introIndex={5 + i}
             position={[keyX(col), keyY(r), CAP_Z]}
             color={keys.step}
             map={stepMap(activeFinish, !!v, i)}
@@ -212,6 +215,7 @@ export default function Keys() {
 
       {/* right column: finish selector above, orange transport below */}
       <Keycap
+        introIndex={21}
         position={[keyX(CLEAR_KEY.col), keyY(CLEAR_KEY.row, CLEAR_KEY.span), CAP_Z]}
         span={CLEAR_KEY.span}
         height={0.92}
@@ -239,6 +243,7 @@ export default function Keys() {
         </group>
       </Keycap>
       <Keycap
+        introIndex={22}
         position={[keyX(PLAY_KEY.col), keyY(PLAY_KEY.row, PLAY_KEY.span), CAP_Z]}
         span={PLAY_KEY.span}
         height={0.92}

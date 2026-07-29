@@ -5,6 +5,9 @@ import { useControls } from 'leva'
 import * as THREE from 'three'
 import { useStore } from '../state/store'
 import { getFinish } from '../finishes'
+import { INTRO_DISABLED } from './assemblyMotion'
+
+const INITIAL_TRANSITION = INTRO_DISABLED ? 1 : 0
 
 const vertexShader = `
   varying vec2 vUv;
@@ -173,7 +176,8 @@ export default function Look() {
   const finish = getFinish(finishIndex)
   const material = useRef()
   const activeFinish = useRef({ finish, index: finishIndex })
-  const transition = useRef(1)
+  const transition = useRef(INITIAL_TRANSITION)
+  const transitionDuration = useRef(INTRO_DISABLED ? 0.85 : 1.75)
 
   const { exposure } = useControls('Look', {
     exposure: { value: 0.92, min: 0.2, max: 2.5, step: 0.01 },
@@ -194,8 +198,8 @@ export default function Look() {
     uTime: { value: 0 },
     uFromMode: { value: finishIndex },
     uToMode: { value: finishIndex },
-    uTransition: { value: 1 },
-    uBubbleCenter: { value: new THREE.Vector2(0.5, 0.5) },
+    uTransition: { value: INITIAL_TRANSITION },
+    uBubbleCenter: { value: new THREE.Vector2(0.5, 0.54) },
     uAspect: { value: size.width / size.height },
     uResolution: {
       value: new THREE.Vector2(
@@ -231,6 +235,7 @@ export default function Look() {
     mat.uniforms.uToMode.value = finishIndex
     mat.uniforms.uBubbleCenter.value.set(0.5, 0.5)
     transition.current = 0
+    transitionDuration.current = 0.85
     activeFinish.current = { finish, index: finishIndex }
   }, [finish, finishIndex])
 
@@ -241,7 +246,10 @@ export default function Look() {
     const frameTime = Math.min(dt, 1 / 30)
     gl.getDrawingBufferSize(mat.uniforms.uResolution.value)
     mat.uniforms.uTime.value += frameTime
-    transition.current = Math.min(1, transition.current + frameTime / 0.85)
+    transition.current = Math.min(
+      1,
+      transition.current + frameTime / transitionDuration.current,
+    )
     const t = transition.current
     mat.uniforms.uTransition.value = t * t * (3 - 2 * t)
   })

@@ -1,11 +1,16 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useFrame } from '@react-three/fiber'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { makeKeycapGeometry } from './keycapGeometry'
 import { capMaterial } from './capMaterials'
 import { PITCH, GAP } from './layout'
 import { useQuality } from './quality'
+import {
+  INTRO_DISABLED,
+  assemblyProgress,
+  setAssemblyPose,
+} from './assemblyMotion'
 
 const geoCache = new Map()
 function geometry(span, height) {
@@ -47,6 +52,7 @@ export default function Keycap({
   materialProps,
   depth = 0,
   pulse,
+  introIndex,
   onPress,
   onDragStart,
   onDragY,
@@ -55,11 +61,46 @@ export default function Keycap({
   ...rest
 }) {
   const quality = useQuality()
+  const assembly = useRef()
   const mesh = useRef()
   const materialRef = useRef()
   const [hover, setHover] = useState(false)
   const held = useRef(0)
   const drag = useRef(null)
+  const introStartedAt = useRef(null)
+  const introSettled = useRef(INTRO_DISABLED || introIndex === undefined)
+  const introX = position?.[0] ?? 0
+  const introY = position?.[1] ?? 0
+
+  const intro = useMemo(() => {
+    if (introIndex === undefined) return null
+
+    const side = introX < 0 ? -1 : 1
+    const variation = ((introIndex * 17) % 7) / 7
+    const angle = introIndex * 2.399963 + 0.72
+    const radius = 12 + variation * 8
+    const tangent = 4.5 + variation * 3
+    return {
+      delay: 0.2 + (introIndex % 6) * 0.055 + Math.floor(introIndex / 6) * 0.018,
+      duration: 1.08 + variation * 0.22,
+      fromPosition: [
+        Math.cos(angle) * radius,
+        Math.sin(angle) * radius + Math.sign(introY || 1) * 2.5,
+        16 + (introIndex % 5) * 2.1,
+      ],
+      fromRotation: [
+        Math.sin(angle) * (1.4 + variation),
+        Math.cos(angle) * (1.5 + variation * 1.2),
+        side * (1.6 + variation * 2.2),
+      ],
+      fromScale: 0.34 + variation * 0.12,
+      arc: [
+        -Math.sin(angle) * tangent,
+        Math.cos(angle) * tangent,
+        3 + variation * 3,
+      ],
+    }
+  }, [introIndex, introX, introY])
 
   const qualityMaterialProps = useMemo(() => {
     if (!materialProps?.transmission || quality.name === 'high') return materialProps
@@ -83,6 +124,18 @@ export default function Keycap({
 
   useEffect(() => () => initialMaterial.dispose(), [initialMaterial])
 
+  useLayoutEffect(() => {
+    if (!intro) return
+    setAssemblyPose(
+      assembly.current,
+      INTRO_DISABLED ? 1 : 0,
+      intro.fromPosition,
+      intro.fromRotation,
+      intro.fromScale,
+      intro.arc,
+    )
+  }, [intro])
+
   const setCursor = (active = false) => {
     document.body.style.cursor = active ? 'grabbing' : hover ? cursor : 'auto'
   }
@@ -97,6 +150,21 @@ export default function Keycap({
   }
 
   useFrame((_, dt) => {
+    if (!introSettled.current && intro && assembly.current) {
+      if (introStartedAt.current === null) introStartedAt.current = _.clock.elapsedTime
+      const elapsed = _.clock.elapsedTime - introStartedAt.current
+      const progress = assemblyProgress(elapsed, intro.delay, intro.duration)
+      setAssemblyPose(
+        assembly.current,
+        progress,
+        intro.fromPosition,
+        intro.fromRotation,
+        intro.fromScale,
+        intro.arc,
+      )
+      if (progress === 1) introSettled.current = true
+    }
+
     const m = mesh.current
     if (!m) return
     const target =
@@ -158,50 +226,52 @@ export default function Keycap({
 
   return (
     <group position={position}>
-      <mesh
-        ref={mesh}
-        geometry={geo}
-        castShadow
-        receiveShadow
-        onPointerOver={(e) => {
-          e.stopPropagation()
-          setHover(true)
-          document.body.style.cursor = drag.current ? 'grabbing' : cursor
-        }}
-        onPointerOut={() => {
-          setHover(false)
-          document.body.style.cursor = drag.current ? 'grabbing' : 'auto'
-        }}
-        onPointerDown={(e) => {
-          e.stopPropagation()
-          held.current = 1
-          if (!onDragY) {
-            onPress?.()
-            return
-          }
-          e.target.setPointerCapture(e.pointerId)
-          drag.current = {
-            y: e.clientY,
-            moved: false,
-            value: onDragStart?.(),
-          }
-          setCursor(true)
-        }}
-        onPointerMove={(e) => {
-          const d = drag.current
-          if (!d) return
-          e.stopPropagation()
-          const dy = d.y - e.clientY
-          if (Math.abs(dy) >= 3) d.moved = true
-          if (d.moved) onDragY(dy, d.value, e)
-        }}
-        onPointerUp={(e) => finishDrag(e)}
-        onPointerCancel={(e) => finishDrag(e, true)}
-        {...rest}
-      >
-        <primitive ref={materialRef} object={initialMaterial} attach="material" />
-        {children}
-      </mesh>
+      <group ref={assembly}>
+        <mesh
+          ref={mesh}
+          geometry={geo}
+          castShadow
+          receiveShadow
+          onPointerOver={(e) => {
+            e.stopPropagation()
+            setHover(true)
+            document.body.style.cursor = drag.current ? 'grabbing' : cursor
+          }}
+          onPointerOut={() => {
+            setHover(false)
+            document.body.style.cursor = drag.current ? 'grabbing' : 'auto'
+          }}
+          onPointerDown={(e) => {
+            e.stopPropagation()
+            held.current = 1
+            if (!onDragY) {
+              onPress?.()
+              return
+            }
+            e.target.setPointerCapture(e.pointerId)
+            drag.current = {
+              y: e.clientY,
+              moved: false,
+              value: onDragStart?.(),
+            }
+            setCursor(true)
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current
+            if (!d) return
+            e.stopPropagation()
+            const dy = d.y - e.clientY
+            if (Math.abs(dy) >= 3) d.moved = true
+            if (d.moved) onDragY(dy, d.value, e)
+          }}
+          onPointerUp={(e) => finishDrag(e)}
+          onPointerCancel={(e) => finishDrag(e, true)}
+          {...rest}
+        >
+          <primitive ref={materialRef} object={initialMaterial} attach="material" />
+          {children}
+        </mesh>
+      </group>
     </group>
   )
 }

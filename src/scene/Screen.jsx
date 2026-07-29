@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useFrame } from '@react-three/fiber'
 import { useControls } from 'leva'
 import { BODY_W, TOP_Y, PLATE_H, PLATE_Z } from './layout'
 import { canvas, toTexture, memo, scratchCanvas } from './textures'
 import { actions, getState, live, TRACKS } from '../state/store'
+import { INTRO_DISABLED } from './assemblyMotion'
 
 // LCD panel — a damaged/noisy dot-matrix display, not a clean UI.
 // Content is rendered at full res into an offscreen mask canvas, then
@@ -26,6 +27,30 @@ const CELL_W = TEX_W / COLS
 const CELL_H = TEX_H / ROWS
 const STEP_PAD_X = 0.045
 const STEP_DRAG_HEIGHT = SCREEN_H * 0.38
+const BOOT_DELAY = 0.42
+const BACKLIGHT_DURATION = 0.42
+const CONTENT_DELAY = 0.12
+const CONTENT_DURATION = 0.24
+const PIXEL_DELAY = 0.54
+const PIXEL_DURATION = 0.84
+const PIXEL_STEPS = 12
+const PIXEL_DENSITY = 0.34
+const UI_FADE_DURATION = 0.34
+const UI_FADE_STEPS = 16
+const BOOT_DURATION = PIXEL_DELAY + PIXEL_DURATION + UI_FADE_DURATION
+
+const smoothstep = (value) => value * value * (3 - 2 * value)
+
+function bootLevel(elapsed, delay, duration) {
+  const progress = THREE.MathUtils.clamp((elapsed - delay) / duration, 0, 1)
+  return smoothstep(progress)
+}
+
+function pixelOrder(x, y) {
+  let hash = Math.imul(x + 1, 374761393) ^ Math.imul(y + 1, 668265263)
+  hash = Math.imul(hash ^ (hash >>> 13), 1274126177)
+  return (hash >>> 0) / 4294967295
+}
 
 function stepFromUv(x) {
   const ladderX = (x - STEP_PAD_X) / (1 - STEP_PAD_X * 2)
@@ -153,9 +178,19 @@ export default function Screen() {
 
   const last = useRef('')
   const stepDrag = useRef(null)
+  const contentMaterial = useRef()
+  const lcdLamp = useRef()
+  const bootStartedAt = useRef(null)
+  const bootComplete = useRef(INTRO_DISABLED)
 
   useEffect(() => () => {
     document.body.style.cursor = ''
+  }, [])
+
+  useLayoutEffect(() => {
+    if (INTRO_DISABLED) return
+    contentMaterial.current?.color.setRGB(0, 0, 0)
+    if (lcdLamp.current) lcdLamp.current.intensity = 0
   }, [])
 
   const finishStepDrag = (e, cancelled = false) => {
@@ -167,13 +202,58 @@ export default function Screen() {
     if (!cancelled && !drag.moved) actions.toggleStep(drag.step)
   }
 
-  useFrame(() => {
+  useFrame(({ clock }) => {
+    let pixelStep = null
+    let uiMix = 1
+
+    if (!bootComplete.current && contentMaterial.current && lcdLamp.current) {
+      if (bootStartedAt.current === null) bootStartedAt.current = clock.elapsedTime
+      const elapsed = clock.elapsedTime - bootStartedAt.current
+      const backlight = bootLevel(elapsed, BOOT_DELAY, BACKLIGHT_DURATION)
+      const content = bootLevel(
+        elapsed,
+        BOOT_DELAY + CONTENT_DELAY,
+        CONTENT_DURATION,
+      )
+      contentMaterial.current.color.copy(contentColor).multiplyScalar(content)
+      lcdLamp.current.intensity = lcdLight * backlight
+      const pixelProgress = THREE.MathUtils.clamp(
+        (elapsed - PIXEL_DELAY) / PIXEL_DURATION,
+        0,
+        1,
+      )
+      pixelStep = Math.min(
+        PIXEL_STEPS,
+        Math.floor(pixelProgress * (PIXEL_STEPS + 1)),
+      )
+      const fadeProgress = THREE.MathUtils.clamp(
+        (elapsed - PIXEL_DELAY - PIXEL_DURATION) / UI_FADE_DURATION,
+        0,
+        1,
+      )
+      const fadeStep = Math.min(
+        UI_FADE_STEPS,
+        Math.floor(fadeProgress * (UI_FADE_STEPS + 1)),
+      )
+      uiMix = smoothstep(fadeStep / UI_FADE_STEPS)
+
+      if (elapsed >= BOOT_DURATION) {
+        contentMaterial.current.color.copy(contentColor)
+        lcdLamp.current.intensity = lcdLight
+        bootComplete.current = true
+        pixelStep = null
+        uiMix = 1
+      }
+    }
+
     const s = getState()
     const trackSwing = s.swing[s.track] ?? 0
-    const key = `${s.bpm}|${s.track}|${trackSwing}|${live.step}|${s.playing}|${s.pattern[s.track].join(',')}`
+    const stateKey =
+      `${s.bpm}|${s.track}|${trackSwing}|${live.step}|${s.playing}|${s.pattern[s.track].join(',')}`
+    const key = pixelStep === null ? stateKey : `boot|${pixelStep}|${uiMix}`
     if (key === last.current) return
     last.current = key
-    draw(g, contentG, tex, s, grid)
+    draw(g, contentG, tex, s, grid, pixelStep, uiMix)
   })
 
   const bezelOuterW = SCREEN_W + BEZEL_MARGIN * 2
@@ -206,7 +286,12 @@ export default function Screen() {
           lit dots bloom against a substrate that stays genuinely black */}
       <mesh position={[0, 0, BEZEL_DEPTH - 0.14]}>
         <planeGeometry args={[SCREEN_W, SCREEN_H]} />
-        <meshBasicMaterial map={tex} color={contentColor} toneMapped={false} />
+        <meshBasicMaterial
+          ref={contentMaterial}
+          map={tex}
+          color={contentColor}
+          toneMapped={false}
+        />
       </mesh>
 
       {/* murky glass — kept thin: at the old 0.34 opacity this lit, tone-mapped
@@ -284,12 +369,18 @@ export default function Screen() {
         <meshBasicMaterial transparent opacity={0} depthWrite={false} />
       </mesh>
 
-      <pointLight position={[0, 0, 0.7]} intensity={lcdLight} distance={4} color={lcdColor} />
+      <pointLight
+        ref={lcdLamp}
+        position={[0, 0, 0.7]}
+        intensity={lcdLight}
+        distance={4}
+        color={lcdColor}
+      />
     </group>
   )
 }
 
-function draw(g, cg, tex, s, grid) {
+function draw(g, cg, tex, s, grid, pixelStep = null, uiMix = 1) {
   const { backlight, blotch, dead, stuck, ambientMask, ambientAmt, blobs } = grid
 
   // base panel colour — near-black substrate. Only a faint teal cast at the
@@ -307,46 +398,65 @@ function draw(g, cg, tex, s, grid) {
   cg.fillStyle = '#fff'
   cg.textBaseline = 'alphabetic'
 
-  // BPM — indented clear of the panel's left-edge sticker (owned by
-  // Props.jsx) which overlaps roughly the first 11% of the screen width.
-  const contentX0 = TEX_W * 0.15
-  cg.font = `700 ${Math.round(TEX_H * 0.4)}px "Courier New", monospace`
-  cg.fillText(String(s.bpm).padStart(3, '0'), contentX0, TEX_H * 0.46)
-  cg.font = `700 ${Math.round(TEX_H * 0.155)}px "Courier New", monospace`
-  cg.fillText('BPM', contentX0, TEX_H * 0.62)
+  if (pixelStep !== null) {
+    // A deterministic subset of the physical dot grid wakes in stepped
+    // clusters. No copy, percentage, or synthetic progress UI — just pixels
+    // finding power before the operational display replaces them.
+    const threshold = (pixelStep / PIXEL_STEPS) * PIXEL_DENSITY
+    cg.globalAlpha = 1 - uiMix
+    for (let y = 0; y < ROWS; y++) {
+      for (let x = 0; x < COLS; x++) {
+        if (pixelOrder(x, y) > threshold) continue
+        cg.fillRect(x * CELL_W, y * CELL_H, CELL_W, CELL_H)
+      }
+    }
+    cg.globalAlpha = 1
+  }
 
-  // track label, top right — its own row, well clear of the transport row
-  // below it so the two never merge into illegible glyphs at dot-matrix res.
-  const track = TRACKS.find((t) => t.id === s.track)
-  cg.font = `700 ${Math.round(TEX_H * 0.17)}px "Courier New", monospace`
-  cg.textAlign = 'right'
-  cg.fillText((track?.label ?? '').toUpperCase(), TEX_W * 0.96, TEX_H * 0.24)
+  if (pixelStep === null || uiMix > 0) {
+    cg.globalAlpha = uiMix
+    // BPM — indented clear of the panel's left-edge sticker (owned by
+    // Props.jsx) which overlaps roughly the first 11% of the screen width.
+    const contentX0 = TEX_W * 0.15
+    cg.font = `700 ${Math.round(TEX_H * 0.4)}px "Courier New", monospace`
+    cg.fillText(String(s.bpm).padStart(3, '0'), contentX0, TEX_H * 0.46)
+    cg.font = `700 ${Math.round(TEX_H * 0.155)}px "Courier New", monospace`
+    cg.fillText('BPM', contentX0, TEX_H * 0.62)
 
-  // Per-track swing feedback plus transport state. Keeping them on separate
-  // rows makes the selected instrument's timing immediately readable without
-  // crowding the BPM block or the step ladder.
-  const swingPercent = Math.round((s.swing[s.track] ?? 0) * 100)
-  cg.font = `700 ${Math.round(TEX_H * 0.13)}px "Courier New", monospace`
-  cg.fillText(`SW${String(swingPercent).padStart(2, '0')}`, TEX_W * 0.96, TEX_H * 0.42)
-  cg.font = `700 ${Math.round(TEX_H * 0.14)}px "Courier New", monospace`
-  cg.fillText(s.playing ? 'RUN' : 'STOP', TEX_W * 0.96, TEX_H * 0.59)
-  cg.textAlign = 'left'
+    // track label, top right — its own row, well clear of the transport row
+    // below it so the two never merge into illegible glyphs at dot-matrix res.
+    const track = TRACKS.find((t) => t.id === s.track)
+    cg.font = `700 ${Math.round(TEX_H * 0.17)}px "Courier New", monospace`
+    cg.textAlign = 'right'
+    cg.fillText((track?.label ?? '').toUpperCase(), TEX_W * 0.96, TEX_H * 0.24)
 
-  // 16-step ladder + playhead
-  const padX = TEX_W * STEP_PAD_X
-  const ladderW = TEX_W - padX * 2
-  const stepW = ladderW / 16
-  const barGap = stepW * 0.16
-  const baseY = TEX_H * 0.94
-  const maxBarH = TEX_H * 0.28
-  for (let i = 0; i < 16; i++) {
-    const velocity = s.pattern[s.track][i]
-    const cur = live.step === i
-    const h = maxBarH * (velocity ? 0.2 + velocity * 0.8 : 0.14)
-    const x = padX + i * stepW + barGap / 2
-    const w = stepW - barGap
-    cg.fillRect(x, baseY - h, w, h)
-    if (cur) cg.fillRect(x, baseY - maxBarH - TEX_H * 0.05, w, TEX_H * 0.03)
+    // Per-track swing feedback plus transport state. Keeping them on separate
+    // rows makes the selected instrument's timing immediately readable without
+    // crowding the BPM block or the step ladder.
+    const swingPercent = Math.round((s.swing[s.track] ?? 0) * 100)
+    cg.font = `700 ${Math.round(TEX_H * 0.13)}px "Courier New", monospace`
+    cg.fillText(`SW${String(swingPercent).padStart(2, '0')}`, TEX_W * 0.96, TEX_H * 0.42)
+    cg.font = `700 ${Math.round(TEX_H * 0.14)}px "Courier New", monospace`
+    cg.fillText(s.playing ? 'RUN' : 'STOP', TEX_W * 0.96, TEX_H * 0.59)
+    cg.textAlign = 'left'
+
+    // 16-step ladder + playhead
+    const padX = TEX_W * STEP_PAD_X
+    const ladderW = TEX_W - padX * 2
+    const stepW = ladderW / 16
+    const barGap = stepW * 0.16
+    const baseY = TEX_H * 0.94
+    const maxBarH = TEX_H * 0.28
+    for (let i = 0; i < 16; i++) {
+      const velocity = s.pattern[s.track][i]
+      const cur = live.step === i
+      const h = maxBarH * (velocity ? 0.2 + velocity * 0.8 : 0.14)
+      const x = padX + i * stepW + barGap / 2
+      const w = stepW - barGap
+      cg.fillRect(x, baseY - h, w, h)
+      if (cur) cg.fillRect(x, baseY - maxBarH - TEX_H * 0.05, w, TEX_H * 0.03)
+    }
+    cg.globalAlpha = 1
   }
 
   const mask = cg.getImageData(0, 0, TEX_W, TEX_H).data
@@ -366,7 +476,8 @@ function draw(g, cg, tex, s, grid) {
       const cx = Math.min(TEX_W - 1, Math.floor((gx + 0.5) * CELL_W))
       const cy = Math.min(TEX_H - 1, Math.floor((gy + 0.5) * CELL_H))
       const contentOn = mask[(cy * TEX_W + cx) * 4] / 255
-      const lit = stuck[idx] || contentOn > 0.5
+      const strength = stuck[idx] ? 1 : contentOn
+      const lit = strength > 0.01
 
       const dw = CELL_W * 0.58
       const dh = CELL_H * 0.58
@@ -378,14 +489,14 @@ function draw(g, cg, tex, s, grid) {
 
         // dim halo underneath, additive — feeds bloom without a hard edge
         g.globalCompositeOperation = 'lighter'
-        g.globalAlpha = 0.16 * Math.min(1, b)
+        g.globalAlpha = 0.16 * Math.min(1, b) * strength
         g.fillStyle = '#5fd4f2'
         const hw = dw * 2.1, hh = dh * 2.1
         g.fillRect(x - (hw - dw) / 2, y - (hh - dh) / 2, hw, hh)
 
         // bright opaque core
         g.globalCompositeOperation = 'source-over'
-        g.globalAlpha = 1
+        g.globalAlpha = strength
         g.fillStyle = b > 0.9 ? '#e8fbff' : '#8fe0f5'
         g.fillRect(x, y, dw, dh)
       } else if (ambientMask[idx]) {
