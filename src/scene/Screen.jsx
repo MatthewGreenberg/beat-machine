@@ -216,10 +216,12 @@ export default function Screen() {
         <meshPhysicalMaterial
           transparent
           opacity={glassOpacity}
+          depthWrite={false}
           roughness={0.22}
           metalness={0}
-          transmission={0.22}
-          thickness={0.25}
+          clearcoat={0.72}
+          clearcoatRoughness={0.14}
+          reflectivity={0.42}
           color={glassColor}
         />
       </mesh>

@@ -1,5 +1,4 @@
 import { useMemo } from 'react'
-import { useControls } from 'leva'
 import Keycap from './Keycap'
 import { capColorMap } from './capMaterials'
 import { useStore, actions, live, TRACKS } from '../state/store'
@@ -7,32 +6,31 @@ import {
   PITCH, keyX, keyY, PLATE_Z, TRACK_KEYS, SWING_KEY,
   STEP_COLS, stepPos, PLAY_KEY, CLEAR_KEY,
 } from './layout'
-
-const CREAM = '#efe9dc'
-const CHARCOAL = '#3a3a3d'
-const TAN = '#d45b19'
+import { FINISHES, getFinish } from '../finishes'
 
 const CAP_Z = PLATE_Z + 0.02
 
 // Step caps read 1 when programmed, 0 when empty — the pattern is literally
 // printed on the hardware.
-const stepMap = (on, i) =>
-  capColorMap(CREAM, on ? '1' : '0', {
-    key: `step-v2-${on ? 1 : 0}-${i % 4}`,
-    wearKey: `step-v2-wear-${i % 4}`,
+const stepMap = (finish, on, i) =>
+  capColorMap(finish.keys.step, on ? '1' : '0', {
+    key: `step-v3-${finish.id}-${on ? 1 : 0}-${i % 4}`,
+    wearKey: `step-v3-wear-${finish.id}-${i % 4}`,
     size: 240,
     y: 0.53,
     rot: (((i * 37) % 7) - 3) * 0.004,
-    ink: 'rgba(30,26,22,0.86)',
-    grime: 0.16 + (i % 3) * 0.05,
+    ink: finish.keys.stepInk,
+    clean: finish.keys.clean,
+    age: finish.keys.clean ? 0 : undefined,
+    grime: finish.keys.clean ? 0 : 0.16 + (i % 3) * 0.05,
     edge: 0.5,
   })
 
 const trackGlyphs = {
-  kick: (g, S) => glyph(g, S, '●', 190),
-  snare: (g, S) => glyph(g, S, '≡', 200),
-  hat: (g, S) => glyph(g, S, '✕', 170),
-  clap: (g, S) => glyph(g, S, '◈', 180),
+  kick: (g, S, ink) => glyph(g, S, '●', 190, ink),
+  snare: (g, S, ink) => glyph(g, S, '≡', 200, ink),
+  hat: (g, S, ink) => glyph(g, S, '✕', 170, ink),
+  clap: (g, S, ink) => glyph(g, S, '◈', 180, ink),
 }
 
 function glyph(g, S, ch, size, ink = 'rgba(226,222,214,0.72)') {
@@ -43,43 +41,115 @@ function glyph(g, S, ch, size, ink = 'rgba(226,222,214,0.72)') {
   g.fillText(ch, S / 2, S * 0.52)
 }
 
-export default function Keys() {
-  const { pattern, track, playing } = useStore()
-  const row = pattern[track]
+function GlowGlyph({ type, color, active = false }) {
+  const material = (
+    <meshBasicMaterial
+      color={color}
+      transparent
+      opacity={active ? 0.78 : 0.56}
+      depthWrite={false}
+      toneMapped={false}
+    />
+  )
 
-  const { cream, creamRough, charcoal, charcoalRough, tan, tanRough } = useControls('Caps', {
-    cream: '#ffffff',
-    creamRough: { value: 0.95, min: 0, max: 1, step: 0.01 },
-    charcoal: '#646464',
-    charcoalRough: { value: 0.61, min: 0, max: 1, step: 0.01 },
-    tan: '#d45b19',
-    tanRough: { value: 1, min: 0, max: 1, step: 0.01 },
-  })
+  const bar = (key, position, scale, rotation = 0) => (
+    <mesh key={key} position={position} rotation={[0, 0, rotation]}>
+      <boxGeometry args={scale} />
+      {material}
+    </mesh>
+  )
+
+  let mark
+  if (type === 'kick') {
+    mark = (
+      <mesh>
+        <circleGeometry args={[0.145, 32]} />
+        {material}
+      </mesh>
+    )
+  } else if (type === 'snare') {
+    mark = [-0.13, 0, 0.13].map((y) => bar(y, [0, y, 0], [0.34, 0.045, 0.014]))
+  } else if (type === 'hat') {
+    mark = [
+      bar('a', [0, 0, 0], [0.38, 0.055, 0.014], Math.PI / 4),
+      bar('b', [0, 0, 0], [0.38, 0.055, 0.014], -Math.PI / 4),
+    ]
+  } else if (type === 'clap') {
+    mark = [
+      bar('tl', [-0.1, 0.1, 0], [0.24, 0.045, 0.014], -Math.PI / 4),
+      bar('tr', [0.1, 0.1, 0], [0.24, 0.045, 0.014], Math.PI / 4),
+      bar('bl', [-0.1, -0.1, 0], [0.24, 0.045, 0.014], Math.PI / 4),
+      bar('br', [0.1, -0.1, 0], [0.24, 0.045, 0.014], -Math.PI / 4),
+    ]
+  } else {
+    mark = [
+      bar('top', [0, 0.09, 0], [0.35, 0.045, 0.014], 0.09),
+      bar('bottom', [0, -0.09, 0], [0.35, 0.045, 0.014], -0.09),
+    ]
+  }
+
+  return <group position={[0, 0, 0.842]} renderOrder={4}>{mark}</group>
+}
+
+export default function Keys() {
+  const { pattern, track, playing, finish } = useStore()
+  const row = pattern[track]
+  const activeFinish = getFinish(finish)
+  const keys = activeFinish.keys
 
   const trackMaps = useMemo(
     () => Object.fromEntries(TRACKS.map((t) => [
       t.id,
-      capColorMap(CHARCOAL, trackGlyphs[t.id], { key: `trk-${t.id}`, grime: 0.3, edge: 0.62 }),
+      capColorMap(
+        keys.modifier,
+        (g, S) => trackGlyphs[t.id](g, S, keys.glyphInk),
+        {
+          key: `trk-v3-${activeFinish.id}-${t.id}`,
+          clean: keys.clean,
+          age: keys.clean ? 0 : undefined,
+          grime: keys.clean ? 0 : 0.3,
+          edge: 0.62,
+        },
+      ),
     ])),
-    [],
+    [activeFinish.id, keys],
   )
 
   const swingMap = useMemo(
-    () => capColorMap(CHARCOAL, (g, S) => glyph(g, S, '≈', 180), { key: 'swing', grime: 0.3, edge: 0.62 }),
-    [],
+    () => capColorMap(
+      keys.modifier,
+      (g, S) => glyph(g, S, '≈', 180, keys.glyphInk),
+      {
+        key: `swing-v3-${activeFinish.id}`,
+        clean: keys.clean,
+        age: keys.clean ? 0 : undefined,
+        grime: keys.clean ? 0 : 0.3,
+        edge: 0.62,
+      },
+    ),
+    [activeFinish.id, keys],
   )
 
-  // The tall caps are 2u, so their maps are drawn in a square that gets
-  // stretched along y. The transport stays orange; the clear key uses the
-  // same near-black plastic as the modifier row.
   const playMap = useMemo(
-    () => capColorMap(TAN, null, { key: 'play-orange', grime: 0.26, edge: 0.55 }),
-    [],
+    () => capColorMap(keys.play, null, {
+      key: `play-v3-${activeFinish.id}`,
+      clean: keys.clean,
+      age: keys.clean ? 0 : undefined,
+      grime: keys.clean ? 0 : 0.26,
+      edge: 0.55,
+    }),
+    [activeFinish.id, keys],
   )
 
   const clearMap = useMemo(
-    () => capColorMap('#242427', null, { key: 'clear-black-v2', grime: 0.34, edge: 0.7 }),
-    [],
+    () => capColorMap(keys.clear, null, {
+      key: `clear-v3-${activeFinish.id}`,
+      clean: keys.clean,
+      age: keys.clean ? 0 : undefined,
+      grime: keys.clean ? 0 : 0.34,
+      edge: 0.7,
+    }),
+    [activeFinish.id, keys],
   )
 
   return (
@@ -90,23 +160,31 @@ export default function Keys() {
           key={t.id}
           position={[keyX(TRACK_KEYS[i]), keyY(0), CAP_Z]}
           height={0.86}
-          color={track === t.id ? '#54545a' : charcoal}
+          color={track === t.id ? keys.modifierActive : keys.modifier}
           map={trackMaps[t.id]}
-          roughness={charcoalRough}
-          metalness={0.22}
+          roughness={keys.modifierRough}
+          metalness={keys.metalness}
+          materialProps={keys.material}
           depth={track === t.id ? 1 : 0}
           onPress={() => actions.selectTrack(t.id)}
-        />
+        >
+          {keys.glyphGlow && (
+            <GlowGlyph type={t.id} color={keys.glyphGlow} active={track === t.id} />
+          )}
+        </Keycap>
       ))}
       <Keycap
         position={[keyX(SWING_KEY), keyY(0), CAP_Z]}
         height={0.86}
-        color={charcoal}
+        color={keys.modifier}
         map={swingMap}
-        roughness={charcoalRough}
-        metalness={0.22}
+        roughness={keys.modifierRough}
+        metalness={keys.metalness}
+        materialProps={keys.material}
         onPress={() => actions.cycleSwing()}
-      />
+      >
+        {keys.glyphGlow && <GlowGlyph type="swing" color={keys.glyphGlow} />}
+      </Keycap>
 
       {/* 16 step pads */}
       {row.map((v, i) => {
@@ -115,9 +193,11 @@ export default function Keys() {
           <Keycap
             key={i}
             position={[keyX(col), keyY(r), CAP_Z]}
-            color={cream}
-            map={stepMap(!!v, i)}
-            roughness={creamRough}
+            color={keys.step}
+            map={stepMap(activeFinish, !!v, i)}
+            roughness={keys.stepRough}
+            metalness={keys.metalness * 0.45}
+            materialProps={keys.material}
             depth={v ? 0.35 + v * 0.65 : 0}
             pulse={() => (live.step === i ? 1 : 0)}
             onPress={() => actions.toggleStep(i)}
@@ -130,27 +210,28 @@ export default function Keys() {
         )
       })}
 
-      {/* right column: clear above, orange transport below */}
+      {/* right column: finish selector above, orange transport below */}
       <Keycap
         position={[keyX(CLEAR_KEY.col), keyY(CLEAR_KEY.row, CLEAR_KEY.span), CAP_Z]}
         span={CLEAR_KEY.span}
         height={0.92}
-        color="#26262a"
+        color={keys.clear}
         map={clearMap}
-        roughness={0.48}
-        metalness={0.3}
-        onPress={() => actions.clear()}
+        roughness={keys.modifierRough}
+        metalness={Math.max(0.3, keys.metalness)}
+        materialProps={keys.material}
+        onPress={() => actions.cycleFinish()}
       >
-        {/* Raised six-spoke clear mark: brighter and larger than the old
-            texture print, so it remains legible on the near-black cap. */}
+        {/* Three finish chips turn the old clear symbol into a tactile material
+            selector. The lit chip previews which surface is currently active. */}
         <group position={[0, 0, 0.905]} renderOrder={2}>
-          {[0, Math.PI / 3, (Math.PI * 2) / 3].map((rotation) => (
-            <mesh key={rotation} rotation={[0, 0, rotation]}>
-              <boxGeometry args={[0.58, 0.065, 0.016]} />
+          {FINISHES.map((option, index) => (
+            <mesh key={option.id} position={[0, (index - 1) * 0.34, 0]}>
+              <boxGeometry args={[index === finish ? 0.54 : 0.38, 0.09, 0.018]} />
               <meshBasicMaterial
-                color="#827c72"
+                color={index === finish ? option.accent : '#6b6760'}
                 transparent
-                opacity={0.78}
+                opacity={index === finish ? 1 : 0.48}
                 depthWrite={false}
               />
             </mesh>
@@ -161,16 +242,18 @@ export default function Keys() {
         position={[keyX(PLAY_KEY.col), keyY(PLAY_KEY.row, PLAY_KEY.span), CAP_Z]}
         span={PLAY_KEY.span}
         height={0.92}
-        color={tan}
+        color={keys.play}
         map={playMap}
-        roughness={tanRough}
+        roughness={keys.playRough}
+        metalness={keys.metalness}
+        materialProps={keys.material}
         depth={playing ? 1 : 0}
         onPress={() => actions.togglePlay()}
       >
         <mesh position={[0, 0, 0.902]} scale={[1, 1.08, 1]} renderOrder={2}>
           <circleGeometry args={[0.34, 3]} />
           <meshBasicMaterial
-            color="#3b1607"
+            color={keys.playGlyph}
             transparent
             opacity={0.94}
             depthWrite={false}

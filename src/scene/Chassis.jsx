@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { RoundedBox, Instances, Instance } from '@react-three/drei'
 import { folder, useControls } from 'leva'
@@ -9,6 +10,8 @@ import {
 import {
   blotchCanvas, scratchCanvas, plateScratchOverlayCanvas, rustCanvas, toTexture, memo,
 } from './textures'
+import { useStore } from '../state/store'
+import { getFinish } from '../finishes'
 
 // Chassis: body, faceplate, recessed switch well + housings, hardware.
 // Owned by the chassis builder pass.
@@ -25,6 +28,41 @@ const WELL_Y = KEYS_TOP_Y - KEYS_H / 2   // vertical centre of the key section
 const RIM_W = 0.22                        // side-rail width outside the key grid
 const RIM_T = 0.13                        // how proud the rim stands above the floor
 const FLOOR_BACK = 0.05                   // how far the switch floor sits behind PLATE_Z
+
+function TweenedStandardMaterial({ color, roughness, metalness, ...props }) {
+  const material = useRef()
+  const [initial] = useState(() => ({ color, roughness, metalness }))
+  const targetColor = useMemo(() => new THREE.Color(color), [color])
+
+  useFrame((_, dt) => {
+    const mat = material.current
+    if (!mat) return
+    const colorDelta =
+      Math.abs(mat.color.r - targetColor.r)
+      + Math.abs(mat.color.g - targetColor.g)
+      + Math.abs(mat.color.b - targetColor.b)
+    const settled =
+      colorDelta < 1e-4
+      && Math.abs(mat.roughness - roughness) < 1e-4
+      && Math.abs(mat.metalness - metalness) < 1e-4
+    if (settled) return
+
+    const k = 1 - Math.exp(-4.8 * Math.min(dt, 0.05))
+    mat.color.lerp(targetColor, k)
+    mat.roughness = THREE.MathUtils.lerp(mat.roughness, roughness, k)
+    mat.metalness = THREE.MathUtils.lerp(mat.metalness, metalness, k)
+  })
+
+  return (
+    <meshStandardMaterial
+      ref={material}
+      color={initial.color}
+      roughness={initial.roughness}
+      metalness={initial.metalness}
+      {...props}
+    />
+  )
+}
 
 // A rounded six-lobe drive silhouette. Layering two copies of this shape gives
 // the socket a bright cut edge and a genuinely dark floor without needing CSG.
@@ -140,20 +178,12 @@ function PanelScrew({ position, index, scratchMap }) {
 }
 
 export default function Chassis() {
+  const finishIndex = useStore((state) => state.finish)
+  const finish = getFinish(finishIndex)
+  const surface = finish.surface
   const {
-    bodyColor, bodyRough, bodyMetal,
-    plateColor, plateRough, plateMetal,
-    floorColor, floorRough,
     rustPatches, rustDings, rustStrength, plateBump, rustSeed,
   } = useControls('Chassis', {
-    bodyColor: '#fff',
-    bodyRough: { value: 0.48, min: 0, max: 1, step: 0.01 },
-    bodyMetal: { value: 0.12, min: 0, max: 1, step: 0.01 },
-    plateColor: '#fff',
-    plateRough: { value: 0.95, min: 0, max: 1, step: 0.01 },
-    plateMetal: { value: 0.15, min: 0, max: 1, step: 0.01 },
-    floorColor: '#ffffff',
-    floorRough: { value: 0.73, min: 0, max: 1, step: 0.01 },
     rust: folder({
       rustPatches: { value: 30, min: 0, max: 100, step: 1 },
       rustDings: { value: 90, min: 0, max: 250, step: 1 },
@@ -178,8 +208,11 @@ export default function Chassis() {
   const plateRust = useMemo(() => {
     // The seed control intentionally triggers a fresh procedural draw.
     void rustSeed
-    return toTexture(rustCanvas(512, rustPatches, rustDings, rustStrength), { srgb: true, repeat: 1 })
-  }, [rustPatches, rustDings, rustStrength, rustSeed])
+    return toTexture(
+      rustCanvas(512, rustPatches, rustDings, rustStrength * surface.wear),
+      { srgb: true, repeat: 1 },
+    )
+  }, [rustPatches, rustDings, rustStrength, rustSeed, surface.wear])
   useEffect(() => () => plateRust.dispose(), [plateRust])
   // Denser scratch pass than the shared body scratch — the faceplate takes
   // the most handling abuse, so it gets its own heavier layer.
@@ -201,32 +234,6 @@ export default function Chassis() {
     () => memo('chassis:plateRough', () => toTexture(blotchCanvas(512, 130, 10, 1.6), { repeat: 1.6 })),
     [],
   )
-
-  // Anodised aluminium, not raw metal: a rough dielectric with a thin metallic
-  // coating. Low metalness keeps the diffuse path (and therefore ambient/fill
-  // light) alive — high metalness on a near-black base color kills diffuse
-  // AND dims specular F0 at once, which is what read as a light-proof void.
-  const bodyMat = useMemo(() => (
-    <meshStandardMaterial
-      color={bodyColor}
-      roughness={bodyRough}
-      metalness={bodyMetal}
-      roughnessMap={rough}
-      metalnessMap={scratch}
-      normalScale={new THREE.Vector2(0.12, 0.12)}
-    />
-  ), [rough, scratch, bodyColor, bodyRough, bodyMetal])
-
-  const rimMat = useMemo(() => (
-    <meshStandardMaterial
-      color={bodyColor}
-      roughness={0.4}
-      metalness={0.15}
-      roughnessMap={rough}
-      metalnessMap={scratch}
-      normalScale={new THREE.Vector2(0.15, 0.15)}
-    />
-  ), [rough, scratch, bodyColor])
 
   // Housing nub sits proud of the well floor in the shadow gap around/under
   // each cap. Slightly larger than the cap footprint (PITCH-GAP) so a rim of
@@ -251,7 +258,14 @@ export default function Chassis() {
         castShadow
         receiveShadow
       >
-        {bodyMat}
+        <TweenedStandardMaterial
+          color={surface.body}
+          roughness={surface.bodyRough}
+          metalness={surface.bodyMetal}
+          roughnessMap={rough}
+          metalnessMap={scratch}
+          normalScale={new THREE.Vector2(0.12, 0.12)}
+        />
       </RoundedBox>
 
       {/* faceplate over the top section (knob / screen / decals) */}
@@ -270,10 +284,10 @@ export default function Chassis() {
             roughness so hot polished streaks (~0.25) fight a dull field (~0.7). */}
         <mesh position={[0, 0, PLATE_Z + 0.01]} castShadow receiveShadow>
           <boxGeometry args={[BODY_W - 0.12, PLATE_H - 0.1, 0.14]} />
-          <meshStandardMaterial
-            color={plateColor}
-            roughness={plateRough}
-            metalness={plateMetal}
+          <TweenedStandardMaterial
+            color={surface.plate}
+            roughness={surface.plateRough}
+            metalness={surface.plateMetal}
             map={plateRust}
             bumpMap={plateRust}
             bumpScale={plateBump}
@@ -307,9 +321,9 @@ export default function Chassis() {
         {/* front face sits 0.01 proud of the body face — coplanar z-fights */}
         <mesh position={[0, WELL_Y, PLATE_Z - FLOOR_BACK + 0.01]} receiveShadow>
           <boxGeometry args={[KEYS_W, KEYS_H, 0.1]} />
-          <meshStandardMaterial
-            color={floorColor}
-            roughness={floorRough}
+          <TweenedStandardMaterial
+            color={surface.floor}
+            roughness={surface.floorRough}
             metalness={0.05}
             roughnessMap={rough}
           />
@@ -323,7 +337,14 @@ export default function Chassis() {
             receiveShadow
           >
             <boxGeometry args={[RIM_W, KEYS_H - 0.08, RIM_T]} />
-            {rimMat}
+            <TweenedStandardMaterial
+              color={surface.body}
+              roughness={Math.max(0.24, surface.bodyRough - 0.08)}
+              metalness={surface.bodyMetal + 0.03}
+              roughnessMap={rough}
+              metalnessMap={scratch}
+              normalScale={new THREE.Vector2(0.15, 0.15)}
+            />
           </mesh>
         ))}
         {[1, -1].map((s) => (
@@ -334,7 +355,14 @@ export default function Chassis() {
             receiveShadow
           >
             <boxGeometry args={[KEYS_W - 0.06, 0.12, RIM_T]} />
-            {rimMat}
+            <TweenedStandardMaterial
+              color={surface.body}
+              roughness={Math.max(0.24, surface.bodyRough - 0.08)}
+              metalness={surface.bodyMetal + 0.03}
+              roughnessMap={rough}
+              metalnessMap={scratch}
+              normalScale={new THREE.Vector2(0.15, 0.15)}
+            />
           </mesh>
         ))}
       </group>

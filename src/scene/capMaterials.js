@@ -267,9 +267,26 @@ function drawLegend(g, legend, opts, rand) {
   g.restore()
 }
 
+function drawCleanLegend(g, legend, opts) {
+  if (typeof legend === 'function') {
+    legend(g, S)
+    return
+  }
+
+  g.fillStyle = opts.ink ?? 'rgba(24,20,18,0.9)'
+  g.font = `${opts.weight ?? 400} ${opts.size ?? 210}px ${opts.font ?? '"Helvetica Neue", Arial'}`
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  g.save()
+  g.translate(S / 2, S * (opts.y ?? 0.5))
+  g.rotate(opts.rot ?? 0)
+  g.fillText(legend, 0, 0)
+  g.restore()
+}
+
 // A legend is drawn by a callback so callers can do glyphs, engravings or art.
 export function capColorMap(base, legend, opts = {}) {
-  const key = `cap:${base}:${opts.key ?? legend ?? ''}:${opts.grime ?? ''}`
+  const key = `cap:${base}:${opts.key ?? legend ?? ''}:${opts.grime ?? ''}:${opts.clean ? 'clean' : 'worn'}`
   return memo(key, () => {
     // The cache key can change with a dynamic legend while wearKey remains
     // tied to the physical cap. That lets a pad swap 0/1 printing without its
@@ -279,6 +296,10 @@ export function capColorMap(base, legend, opts = {}) {
     const [c, g] = canvas(S)
     g.fillStyle = base
     g.fillRect(0, 0, S, S)
+    if (opts.clean) {
+      if (legend) drawCleanLegend(g, legend, opts)
+      return toTexture(c, { srgb: true })
+    }
     drawAging(g, base, opts.age ?? (light ? 1 : 0.3), rand)
     if (legend) drawLegend(g, legend, opts, rand)
     drawWear(g, { ...opts, light }, rand)

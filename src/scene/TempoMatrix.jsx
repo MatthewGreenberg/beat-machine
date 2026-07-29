@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
+import { Instance, Instances } from '@react-three/drei'
 import * as THREE from 'three'
 import { BPM_MAX, BPM_MIN, live, useStore } from '../state/store'
 import { BODY_W } from './layout'
@@ -72,55 +73,72 @@ function buildDotMatrices() {
   return { geometry, material, left, right }
 }
 
-function StepTick({ step, velocity }) {
-  const meshRef = useRef()
-  const leftWing = step < 8
-  const wingStep = leftWing ? step : step - 8
-  const column = leftWing ? 7 - wingStep : wingStep
-  const x = GRID_INNER_X + column * GRID_STEP_X
-
-  useFrame((_, delta) => {
-    const mesh = meshRef.current
-    if (!mesh) return
-    const playhead = live.step === step
-    const targetX = playhead ? 1.45 : velocity ? 1 : 0.25
-    const targetY = playhead ? 3.6 : velocity ? 1.2 + velocity * 2.3 : 0.25
-    mesh.scale.x = THREE.MathUtils.damp(mesh.scale.x, targetX, 18, delta)
-    mesh.scale.y = THREE.MathUtils.damp(mesh.scale.y, targetY, 18, delta)
-    mesh.material.opacity = THREE.MathUtils.damp(
-      mesh.material.opacity,
-      playhead || velocity ? 1 : 0,
-      18,
-      delta,
-    )
-
-    if (playhead) mesh.material.color.setRGB(4.8, 0.34, 0.035)
-    else mesh.material.color.setRGB(0.15, 1.15, 1.65)
-  })
-
-  return (
-    <mesh ref={meshRef} position={[leftWing ? -x : x, 0, DOT_Z + 0.08]} renderOrder={1}>
-      <planeGeometry args={[0.085, 0.11]} />
-      <meshBasicMaterial
-        transparent
-        opacity={0}
-        blending={THREE.AdditiveBlending}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </mesh>
-  )
-}
-
 // Mirrors the selected instrument's 16-step LCD ladder across the background:
 // steps 1–8 live on the left wing and 9–16 continue on the right. The machine
 // occludes the missing centre, so the sequence feels like it passes behind it.
 function StepRail({ groupRef, pattern }) {
+  const meshRef = useRef()
+  const geometry = useMemo(() => new THREE.PlaneGeometry(0.085, 0.11), [])
+  const material = useMemo(() => new THREE.MeshBasicMaterial({
+    transparent: true,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    toneMapped: false,
+  }), [])
+  const transform = useMemo(() => new THREE.Object3D(), [])
+  const color = useMemo(() => new THREE.Color(), [])
+  const scales = useRef(Array.from({ length: 16 }, () => ({ x: 0.25, y: 0.25, opacity: 0 })))
+
+  useEffect(() => {
+    meshRef.current?.instanceMatrix.setUsage(THREE.DynamicDrawUsage)
+    return () => {
+      geometry.dispose()
+      material.dispose()
+    }
+  }, [geometry, material])
+
+  useFrame((_, delta) => {
+    const mesh = meshRef.current
+    if (!mesh) return
+
+    for (let step = 0; step < 16; step += 1) {
+      const velocity = pattern[step] || 0
+      const playhead = live.step === step
+      const state = scales.current[step]
+      const targetX = playhead ? 1.45 : velocity ? 1 : 0.25
+      const targetY = playhead ? 3.6 : velocity ? 1.2 + velocity * 2.3 : 0.25
+      const targetOpacity = playhead || velocity ? 1 : 0
+      state.x = THREE.MathUtils.damp(state.x, targetX, 18, delta)
+      state.y = THREE.MathUtils.damp(state.y, targetY, 18, delta)
+      state.opacity = THREE.MathUtils.damp(state.opacity, targetOpacity, 18, delta)
+
+      const leftWing = step < 8
+      const wingStep = leftWing ? step : step - 8
+      const column = leftWing ? 7 - wingStep : wingStep
+      const x = GRID_INNER_X + column * GRID_STEP_X
+      transform.position.set(leftWing ? -x : x, 0, DOT_Z + 0.08)
+      transform.scale.set(state.x, state.y, 1)
+      transform.updateMatrix()
+      mesh.setMatrixAt(step, transform.matrix)
+
+      if (playhead) color.setRGB(4.8, 0.34, 0.035)
+      else color.setRGB(0.15, 1.15, 1.65)
+      color.multiplyScalar(state.opacity)
+      mesh.setColorAt(step, color)
+    }
+
+    mesh.instanceMatrix.needsUpdate = true
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true
+  })
+
   return (
     <group ref={groupRef}>
-      {pattern.map((velocity, step) => (
-        <StepTick key={step} step={step} velocity={velocity || 0} />
-      ))}
+      <instancedMesh
+        ref={meshRef}
+        args={[geometry, material, 16]}
+        frustumCulled={false}
+        renderOrder={1}
+      />
     </group>
   )
 }
@@ -151,28 +169,18 @@ function TickLabel({ value, y }) {
   useEffect(() => () => texture.dispose(), [texture])
 
   return (
-    <>
-      <mesh position={[-LABEL_X, y, DOT_Z]} renderOrder={1}>
-        <planeGeometry args={[0.84, 0.42]} />
-        <meshBasicMaterial
-          map={texture}
-          transparent
-          opacity={0.94}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-      <mesh position={[LABEL_X, y, DOT_Z]} renderOrder={1}>
-        <planeGeometry args={[0.84, 0.42]} />
-        <meshBasicMaterial
-          map={texture}
-          transparent
-          opacity={0.94}
-          depthWrite={false}
-          toneMapped={false}
-        />
-      </mesh>
-    </>
+    <Instances limit={2} renderOrder={1}>
+      <planeGeometry args={[0.84, 0.42]} />
+      <meshBasicMaterial
+        map={texture}
+        transparent
+        opacity={0.94}
+        depthWrite={false}
+        toneMapped={false}
+      />
+      <Instance position={[-LABEL_X, y, DOT_Z]} />
+      <Instance position={[LABEL_X, y, DOT_Z]} />
+    </Instances>
   )
 }
 

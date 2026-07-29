@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/immutability */
 import { useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { useLayoutEffect, useRef } from 'react'

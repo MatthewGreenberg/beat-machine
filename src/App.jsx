@@ -1,5 +1,6 @@
 import { Canvas } from '@react-three/fiber'
-import { Suspense } from 'react'
+import { PerformanceMonitor } from '@react-three/drei'
+import { Suspense, useCallback, useMemo, useState } from 'react'
 import { Leva, button, levaStore, useControls } from 'leva'
 import * as THREE from 'three'
 import Rig from './scene/Rig'
@@ -10,6 +11,15 @@ import Post from './scene/Post'
 import TempoMatrix from './scene/TempoMatrix'
 import Hud from './ui/Hud'
 import { DEBUG } from './scene/views'
+import {
+  QualityProvider,
+  qualityConfig,
+  qualityNameForFactor,
+  requestedQuality,
+} from './scene/quality'
+
+const FORCED_QUALITY = requestedQuality()
+const INITIAL_FACTOR = 0.58
 
 function CopyValues() {
   useControls('Debug', {
@@ -29,32 +39,66 @@ function CopyValues() {
 }
 
 export default function App() {
+  const [qualityFactor, setQualityFactor] = useState(INITIAL_FACTOR)
+  const [adaptiveFallback, setAdaptiveFallback] = useState(false)
+
+  const qualityName = FORCED_QUALITY
+    ?? (adaptiveFallback ? 'performance' : qualityNameForFactor(qualityFactor))
+  const quality = useMemo(
+    () => qualityConfig(qualityName, FORCED_QUALITY ? null : qualityFactor),
+    [qualityFactor, qualityName],
+  )
+
+  const updateQuality = useCallback((api) => {
+    setQualityFactor((current) => (
+      Math.abs(current - api.factor) >= 0.01 ? api.factor : current
+    ))
+  }, [])
+
   return (
-    <div className="stage">
-      <Leva hidden={!DEBUG} />
-      {DEBUG && <CopyValues />}
-      <Canvas
-        shadows
-        dpr={[1, 1.5]}
-        gl={{
-          antialias: true,
-          toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 0.92,
-          powerPreference: 'high-performance',
-        }}
-        camera={{ position: [0, 0, 46], fov: 26, near: 0.1, far: 200 }}
-      >
-        <Suspense fallback={null}>
-          <Look />
-          <Rig>
-            <TempoMatrix />
-            <Lighting />
-            <Machine />
-          </Rig>
-          <Post />
-        </Suspense>
-      </Canvas>
-      <Hud />
-    </div>
+    <QualityProvider value={quality}>
+      <div className="stage" data-quality={quality.name}>
+        <Leva hidden={!DEBUG} />
+        {DEBUG && <CopyValues />}
+        <Canvas
+          dpr={quality.dpr}
+          gl={{
+            antialias: true,
+            toneMapping: THREE.ACESFilmicToneMapping,
+            toneMappingExposure: 0.92,
+            powerPreference: 'high-performance',
+          }}
+          camera={{ position: [0, 0, 46], fov: 26, near: 0.1, far: 200 }}
+        >
+          {!FORCED_QUALITY && !adaptiveFallback && (
+            <PerformanceMonitor
+              factor={INITIAL_FACTOR}
+              iterations={6}
+              ms={350}
+              threshold={0.8}
+              step={0.12}
+              flipflops={4}
+              bounds={(refreshRate) => (
+                refreshRate > 100
+                  ? [refreshRate * 0.72, refreshRate * 0.92]
+                  : [48, 58]
+              )}
+              onChange={updateQuality}
+              onFallback={() => setAdaptiveFallback(true)}
+            />
+          )}
+          <Suspense fallback={null}>
+            <Look />
+            <Rig>
+              <TempoMatrix />
+              <Lighting />
+              <Machine />
+            </Rig>
+            <Post />
+          </Suspense>
+        </Canvas>
+        <Hud />
+      </div>
+    </QualityProvider>
   )
 }

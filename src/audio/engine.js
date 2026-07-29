@@ -116,6 +116,11 @@ const voices = {
   },
 }
 
+const VOICE_GAIN = {
+  snare: 0.78,
+  clap: 1.25,
+}
+
 export const TRACKS = [
   { id: 'kick', label: 'KICK' },
   { id: 'snare', label: 'SNARE' },
@@ -126,7 +131,7 @@ export const TRACKS = [
 export function trigger(trackId, when, gain = 1) {
   const c = resume()
   const t = when ?? c.currentTime
-  voices[trackId]?.(c, t, gain)
+  voices[trackId]?.(c, t, gain * (VOICE_GAIN[trackId] ?? 1))
 }
 
 // ---- Transport -------------------------------------------------------------

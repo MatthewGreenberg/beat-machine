@@ -1,5 +1,7 @@
+import { useMemo } from 'react'
 import { Environment, Lightformer } from '@react-three/drei'
 import { useControls } from 'leva'
+import * as THREE from 'three'
 
 // Reference look: an object lit in a black room. One hard key rakes the face
 // from upper-left-front, a cool sliver skims the right edge, and there is no
@@ -10,6 +12,7 @@ import { useControls } from 'leva'
 // irradiance is intensity / distance². The key sits close (~26 units) on
 // purpose: the falloff across that distance is what darkens the bottom rows.
 export default function Lighting() {
+  const lightTarget = useMemo(() => new THREE.Object3D(), [])
   const {
     envIntensity,
     softbox,
@@ -40,6 +43,10 @@ export default function Lighting() {
 
   return (
     <>
+      {/* A real target inside the rig keeps the spot directions stable as the
+          whole machine leans with pointer parallax. The Three default target
+          lives at world origin, which made the lights shear across the unit. */}
+      <primitive object={lightTarget} />
       {/* Reflection-only room. Almost entirely black; the panels exist to be
           seen *in* the plastic, not to light it. frames={1} bakes once. */}
       {/* key remounts + frames=1 so leva retunes without a per-frame bake */}
@@ -79,12 +86,7 @@ export default function Lighting() {
         decay={2}
         intensity={keyIntensity}
         color={keyColor}
-        castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-bias={-0.00015}
-        shadow-normalBias={0.06}
-        shadow-camera-near={6}
-        shadow-camera-far={60}
+        target={lightTarget}
       />
 
       {/* RIM — cool, camera-right and slightly behind. Only ever catches the
@@ -97,6 +99,7 @@ export default function Lighting() {
         decay={2}
         intensity={rimIntensity}
         color={rimColor}
+        target={lightTarget}
       />
 
       {/* BOUNCE — a whisper of cool fill from below so the bottom rows sit at

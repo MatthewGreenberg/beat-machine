@@ -7,10 +7,12 @@ import {
   ChromaticAberration,
   ToneMapping,
   N8AO,
+  FXAA,
 } from '@react-three/postprocessing'
-import { BlendFunction, ToneMappingMode } from 'postprocessing'
+import { BlendFunction, KernelSize, ToneMappingMode } from 'postprocessing'
 import { useControls } from 'leva'
 import { VIEW, VIEWS, NO_POST } from './views'
+import { useQuality } from './quality'
 
 // EffectComposer forces renderer.toneMapping = NoToneMapping, so without an
 // explicit ToneMapping effect nothing rolls off and every lit surface clips to
@@ -35,6 +37,7 @@ const DOF = {
 }[name]
 
 export default function Post() {
+  const quality = useQuality()
   const {
     ao,
     aoRadius,
@@ -62,23 +65,44 @@ export default function Post() {
   })
 
   if (NO_POST) return null
+  const showDof = name !== 'front'
+  const compactBloom = quality.bloom === 'compact'
+
   return (
-    <EffectComposer multisampling={4}>
+    <EffectComposer multisampling={quality.multisampling}>
       {/* crevice darkening between caps — most of the material separation in
           the reference is contact shadow, not light */}
-      <N8AO aoRadius={aoRadius} distanceFalloff={0.5} intensity={ao} aoSamples={16} denoiseSamples={4} halfRes />
-      <DepthOfField
-        worldFocusDistance={dist}
-        worldFocusRange={dofRange}
-        bokehScale={dofBokeh}
-        height={720}
+      <N8AO
+        aoRadius={aoRadius}
+        distanceFalloff={0.5}
+        intensity={ao}
+        aoSamples={quality.aoSamples}
+        denoiseSamples={quality.denoiseSamples}
+        halfRes
       />
+      {showDof && (
+        <DepthOfField
+          worldFocusDistance={dist}
+          worldFocusRange={dofRange}
+          bokehScale={dofBokeh}
+          height={quality.dofHeight}
+        />
+      )}
       {/* threshold sits above 1.0 so only the LCD and true speculars bloom */}
-      <Bloom intensity={bloom} luminanceThreshold={bloomThresh} luminanceSmoothing={0.12} mipmapBlur radius={bloomRadius} />
+      <Bloom
+        intensity={bloom}
+        luminanceThreshold={bloomThresh}
+        luminanceSmoothing={0.12}
+        mipmapBlur={!compactBloom}
+        radius={bloomRadius}
+        resolutionScale={compactBloom ? 0.4 : undefined}
+        kernelSize={compactBloom ? KernelSize.MEDIUM : undefined}
+      />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       <ChromaticAberration offset={[aberration, aberration * 1.25]} radialModulation modulationOffset={0.4} />
       <Vignette eskil={false} offset={vignetteOffset} darkness={vignetteDark} />
       <Noise opacity={grain} blendFunction={BlendFunction.OVERLAY} />
+      {quality.antialias === 'fxaa' && <FXAA />}
     </EffectComposer>
   )
 }

@@ -26,4 +26,63 @@ body {
 
 .hud .dot { width: 6px; height: 6px; border-radius: 50%; background: #3a3a3a; }
 .hud .dot.on { background: #ff6a3d; box-shadow: 0 0 10px #ff6a3d; }
+.hud .finish-name {
+  color: var(--finish-accent);
+  transition: color 420ms ease, text-shadow 420ms ease;
+  text-shadow: 0 0 14px color-mix(in srgb, var(--finish-accent), transparent 35%);
+}
+.finish-picker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  pointer-events: auto;
+}
+.finish-picker button {
+  position: relative;
+  appearance: none;
+  border: 0;
+  border-bottom: 1px solid #34312e;
+  padding: 4px 3px 3px;
+  background: transparent;
+  color: #55514c;
+  font: inherit;
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: color 180ms ease, border-color 180ms ease, text-shadow 180ms ease;
+}
+.finish-picker button::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 4px;
+  margin-right: 4px;
+  border-radius: 50%;
+  background: var(--swatch);
+  opacity: 0.35;
+  transition: opacity 180ms ease, box-shadow 180ms ease;
+}
+.finish-picker button:hover,
+.finish-picker button:focus-visible,
+.finish-picker button.active {
+  color: #d6d1c8;
+  border-color: var(--swatch);
+  outline: none;
+}
+.finish-picker button.active::before {
+  opacity: 1;
+  box-shadow: 0 0 9px var(--swatch);
+}
 .hud .hint { color: #3d3b38; }
+
+@media (max-width: 720px) {
+  .hud {
+    bottom: 12px;
+    gap: 10px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+
+  .hud .hint,
+  .hud > span:nth-child(4) { display: none; }
+}

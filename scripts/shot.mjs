@@ -25,6 +25,7 @@ const view = positional[0] || 'front'
 const out = resolve(positional[1] || `shots/${view}.png`)
 const [w, h] = (flags.size || '1200x1400').split('x').map(Number)
 const wait = Number(flags.wait ?? 2600)
+const quality = flags.quality || 'high'
 
 async function up() {
   try {
@@ -54,7 +55,7 @@ const errors = []
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
 page.on('pageerror', (e) => errors.push(String(e)))
 
-const url = `${BASE}/?view=${view}${flags.post === '0' ? '&post=0' : ''}${flags.play ? '&play=1' : ''}`
+const url = `${BASE}/?view=${view}&quality=${quality}${flags.post === '0' ? '&post=0' : ''}${flags.play ? '&play=1' : ''}`
 // vite's HMR socket means networkidle never fires
 await page.goto(url, { waitUntil: 'domcontentloaded' })
 try {

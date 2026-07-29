@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { TRACKS, createTransport, trigger, resume } from '../audio/engine'
+import { FINISHES } from '../finishes'
 
 export const BPM_MIN = 60
 export const BPM_MAX = 180
@@ -24,6 +25,7 @@ let state = {
   swing: Object.fromEntries(TRACKS.map((track) => [track.id, 0.18])),
   playing: false,
   step: -1,
+  finish: 0,
 }
 
 // Mutable mirror the render loop reads every frame without triggering React.
@@ -91,6 +93,13 @@ export const actions = {
     )
     const next = SWING_OPTIONS[(currentIndex + 1) % SWING_OPTIONS.length]
     set({ swing: { ...state.swing, [state.track]: next } })
+  },
+  setFinish(index) {
+    const finish = ((index % FINISHES.length) + FINISHES.length) % FINISHES.length
+    set({ finish })
+  },
+  cycleFinish() {
+    set({ finish: (state.finish + 1) % FINISHES.length })
   },
   clear() {
     set({ pattern: { ...state.pattern, [state.track]: new Array(16).fill(0) } })
