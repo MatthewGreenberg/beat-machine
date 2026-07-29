@@ -1,0 +1,29 @@
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body, #root { height: 100%; background: #050505; }
+
+body {
+  overflow: hidden;
+  font: 11px/1 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: 0.14em;
+  color: #6d6a64;
+  -webkit-font-smoothing: antialiased;
+}
+
+.stage { position: fixed; inset: 0; }
+
+.hud {
+  position: fixed;
+  left: 0; right: 0; bottom: 18px;
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  align-items: center;
+  text-transform: uppercase;
+  pointer-events: none;
+  mix-blend-mode: screen;
+}
+
+.hud .dot { width: 6px; height: 6px; border-radius: 50%; background: #3a3a3a; }
+.hud .dot.on { background: #ff6a3d; box-shadow: 0 0 10px #ff6a3d; }
+.hud .hint { color: #3d3b38; }
