@@ -35,8 +35,11 @@ export default function Rig({ children }) {
 
   useFrame((state, dt) => {
     if (!VIEW && !DEBUG) {
-      const k = 1 - Math.exp(-3.5 * Math.min(dt, 0.1))
-      target.current.lerp(pointer, k)
+      const t = Math.min(dt, 0.1)
+      // x tracks faster than y so side-to-side yaw feels snappy without
+      // making the vertical tilt twitchy
+      target.current.x += (pointer.x - target.current.x) * (1 - Math.exp(-7 * t))
+      target.current.y += (pointer.y - target.current.y) * (1 - Math.exp(-3.5 * t))
     }
     const g = group.current
     if (!g) return

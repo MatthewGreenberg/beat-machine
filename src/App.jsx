@@ -10,7 +10,7 @@ import Machine from './scene/Machine'
 import Post from './scene/Post'
 import TempoMatrix from './scene/TempoMatrix'
 import Hud from './ui/Hud'
-import { DEBUG } from './scene/views'
+import { DEBUG, NO_POST } from './scene/views'
 import {
   QualityProvider,
   qualityConfig,
@@ -63,7 +63,12 @@ export default function App() {
         <Canvas
           dpr={quality.dpr}
           gl={{
-            antialias: true,
+            // the post chain owns AA (composer MSAA or FXAA); canvas MSAA on
+            // top of it is pure fill-rate waste. ?post=0 renders straight to
+            // canvas, so it keeps native AA and its depth buffer.
+            antialias: NO_POST,
+            stencil: false,
+            depth: NO_POST,
             toneMapping: THREE.ACESFilmicToneMapping,
             toneMappingExposure: 0.92,
             powerPreference: 'high-performance',

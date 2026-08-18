@@ -364,6 +364,8 @@ const settle = (value) => {
 export default function FxScreen({ morph }) {
   const { fx, finish } = useStore()
   const activeFinish = getFinish(finish)
+  // frame loop lerps toward this; allocating it per frame was GC churn
+  const accentColor = useMemo(() => new THREE.Color(activeFinish.accent), [activeFinish.accent])
   const root = useRef()
   const visuals = useRef()
   const hitLayer = useRef()
@@ -430,7 +432,7 @@ export default function FxScreen({ morph }) {
         fx.filter + fx.drive + fx.delay + fx.space
       ) / 4
       shaderMaterial.current.uniforms.uAccent.value.lerp(
-        new THREE.Color(activeFinish.accent),
+        accentColor,
         1 - Math.exp(-5 * frameTime),
       )
     }
