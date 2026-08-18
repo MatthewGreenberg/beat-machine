@@ -1,10 +1,22 @@
 import { useSyncExternalStore } from 'react'
-import { TRACKS, createTransport, trigger, resume } from '../audio/engine'
+import {
+  TRACKS,
+  createTransport,
+  trigger,
+  resume,
+  setMasterVolume,
+  setKit,
+  syncDelay,
+  setFx as setAudioFx,
+} from '../audio/engine'
 import { FINISHES } from '../finishes'
 
 export const BPM_MIN = 60
 export const BPM_MAX = 180
 export const SWING_OPTIONS = [0, 0.18, 0.32, 0.46]
+
+// Blue plays hip-hop, red plays trap, purple plays cool; ivory stays on the synths.
+const FINISH_KIT = { cobalt: 'hip', ember: 'trap', violet: 'cool' }
 
 // ponytail: 30-line subscribe store instead of zustand — no new dep.
 const listeners = new Set()
@@ -26,10 +38,20 @@ let state = {
   playing: false,
   step: -1,
   finish: 0,
+  // main dial: click toggles between tempo and master volume
+  knobMode: 'bpm',
+  volume: 0.5,
+  fxOpen: false,
+  fx: {
+    filter: 1,
+    drive: 0,
+    delay: 0,
+    space: 0,
+  },
 }
 
 // Mutable mirror the render loop reads every frame without triggering React.
-export const live = { step: -1, hits: new Map(), knob: 0 }
+export const live = { step: -1, hits: new Map(), knob: 0, fxMorph: 0 }
 
 function set(patch) {
   state = { ...state, ...patch }
@@ -84,7 +106,29 @@ export const actions = {
     set({ playing: transport.running })
   },
   setBpm(v) {
-    set({ bpm: Math.max(BPM_MIN, Math.min(BPM_MAX, Math.round(v))) })
+    const bpm = Math.max(BPM_MIN, Math.min(BPM_MAX, Math.round(v)))
+    set({ bpm })
+    syncDelay(bpm)
+  },
+  setVolume(v) {
+    const volume = Math.max(0, Math.min(1, v))
+    setMasterVolume(volume)
+    set({ volume })
+  },
+  toggleKnobMode() {
+    set({ knobMode: state.knobMode === 'bpm' ? 'volume' : 'bpm' })
+  },
+  toggleFx() {
+    set({ fxOpen: !state.fxOpen })
+  },
+  closeFx() {
+    if (state.fxOpen) set({ fxOpen: false })
+  },
+  setFxValue(name, value) {
+    if (!(name in state.fx)) return
+    const next = Math.max(0, Math.min(1, value))
+    setAudioFx(name, next)
+    set({ fx: { ...state.fx, [name]: next } })
   },
   cycleSwing() {
     const current = state.swing[state.track] ?? 0
@@ -97,9 +141,10 @@ export const actions = {
   setFinish(index) {
     const finish = ((index % FINISHES.length) + FINISHES.length) % FINISHES.length
     set({ finish })
+    setKit(FINISH_KIT[FINISHES[finish].id] ?? null)
   },
   cycleFinish() {
-    set({ finish: (state.finish + 1) % FINISHES.length })
+    actions.setFinish(state.finish + 1)
   },
   clear() {
     set({ pattern: { ...state.pattern, [state.track]: new Array(16).fill(0) } })

@@ -14,7 +14,9 @@ import { getFinish } from '../finishes'
 // ---------------------------------------------------------------------------
 // Antenna: telescoping segments (wide at base, narrow at tip), a joint collar
 // between each, a tip bead, and a rubber grommet where it meets the plate.
-const ANTENNA_BASE = new THREE.Vector3(BODY_W / 2 - 0.15, TOP_Y + 0.05, PLATE_Z + 0.35)
+// Sits on the chassis top face: inset from the right edge and z=0 (mid-depth)
+// so the grommet (outer r ≈ 0.47) stays on the flat top inside the corner rounding.
+const ANTENNA_BASE = new THREE.Vector3(BODY_W / 2 - 0.62, TOP_Y + 0.05, 0)
 // Radii scaled ~2.5x from the original pass — at 12-17px on a 2000px frame
 // the rod read as a scratch on the lens rather than metal.
 const ANTENNA_SCALE = 2.5

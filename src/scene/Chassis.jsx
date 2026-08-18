@@ -29,6 +29,13 @@ const RIM_W = 0.22                        // side-rail width outside the key gri
 const RIM_T = 0.13                        // how proud the rim stands above the floor
 const FLOOR_BACK = 0.05                   // how far the switch floor sits behind PLATE_Z
 
+// Neutral stand-in for the wear maps on a clean finish. Swapping a map to null
+// recompiles the material's shader — which hitches the finish switch — so the
+// clean skins bind this instead: white is the identity value for every channel
+// it stands in for (colour, bump, metalness).
+const BLANK_MAP = new THREE.DataTexture(new Uint8Array([255, 255, 255, 255]), 1, 1)
+BLANK_MAP.needsUpdate = true
+
 function TweenedStandardMaterial({ color, roughness, metalness, ...props }) {
   const material = useRef()
   const [initial] = useState(() => ({ color, roughness, metalness }))
@@ -281,25 +288,27 @@ export default function Chassis() {
             plateRust rides the diffuse `map` (orange-brown blooms + chips) and
             the bump channel (chips depress, crust raises); plateScratch keys
             the metalness so scratches flash under the rake; plateRough drives
-            roughness so hot polished streaks (~0.25) fight a dull field (~0.7). */}
+            roughness so hot polished streaks (~0.25) fight a dull field (~0.7).
+            At wear 0 the rust canvas is a flat mid-grey that would just halve
+            the plate colour, so a clean finish drops it and shows its true hue. */}
         <mesh position={[0, 0, PLATE_Z + 0.01]} castShadow receiveShadow>
           <boxGeometry args={[BODY_W - 0.12, PLATE_H - 0.1, 0.14]} />
           <TweenedStandardMaterial
             color={surface.plate}
             roughness={surface.plateRough}
             metalness={surface.plateMetal}
-            map={plateRust}
-            bumpMap={plateRust}
+            map={surface.wear ? plateRust : BLANK_MAP}
+            bumpMap={surface.wear ? plateRust : BLANK_MAP}
             bumpScale={plateBump}
             roughnessMap={plateRoughMap}
-            metalnessMap={plateScratch}
+            metalnessMap={surface.wear ? plateScratch : BLANK_MAP}
             normalScale={new THREE.Vector2(0.22, 0.22)}
           />
         </mesh>
         {/* Front-only scratch decal. Transparent grooves keep the original rust
             and paint variation intact; their pale offset lips pick up the key
             light like exposed metal at the edge of a real cut. */}
-        <mesh position={[0, 0, PLATE_Z + 0.082]} receiveShadow renderOrder={2}>
+        <mesh position={[0, 0, PLATE_Z + 0.082]} receiveShadow renderOrder={2} visible={surface.wear > 0}>
           <planeGeometry args={[BODY_W - 0.16, PLATE_H - 0.14]} />
           <meshStandardMaterial
             map={plateScratchOverlay}

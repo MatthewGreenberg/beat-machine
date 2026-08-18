@@ -24,6 +24,13 @@ const DETENT = 3
 // supplied hardware reference.
 const HOME_ANGLE = Math.PI * 0.51
 const angleFor = (bpm) => HOME_ANGLE - ((bpm - 96) / 120) * SWEEP
+// volume rides the same physical travel as the 60–180 BPM sweep
+const angleForVolume = (v) => HOME_ANGLE - (v - 0.3) * SWEEP
+// ring hint colour while the dial is a volume control — deliberately not any
+// finish accent, so the mode change reads at a glance
+// dimmer than the accents it replaces: a near-white ring at the strip's
+// emissive strength blooms out, and mode is legible without the extra punch
+const VOLUME_RING = '#7d99b3'
 
 function smoothstep(edge0, edge1, value) {
   const t = THREE.MathUtils.clamp((value - edge0) / (edge1 - edge0), 0, 1)
@@ -200,6 +207,42 @@ function sideBrushCanvas(size = 512) {
   return c
 }
 
+// Engraved legend for the dial's push action, printed on a static center cap
+// so the text doesn't spin with the tempo detents.
+function pushCapCanvas(size = 256) {
+  const [c, g] = canvas(size)
+  g.clearRect(0, 0, size, size)
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  // ragged ink pass: jittered low-alpha repeats rough up the letter edges so
+  // the print reads as worn pad-printing, not a fresh vector stamp
+  const stamp = (text, font, y, alpha) => {
+    g.font = font
+    for (let i = 0; i < 7; i++) {
+      g.fillStyle = `rgba(24,28,31,${alpha * (0.3 + Math.random() * 0.35)})`
+      g.fillText(
+        text,
+        size / 2 + (Math.random() - 0.5) * size * 0.008,
+        y + (Math.random() - 0.5) * size * 0.008,
+      )
+    }
+  }
+  stamp('PUSH', `700 ${Math.round(size * 0.3)}px Arial, sans-serif`, size * 0.38, 0.88)
+  stamp('BPM / VOL', `700 ${Math.round(size * 0.16)}px Arial, sans-serif`, size * 0.64, 0.66)
+
+  // chip flecks of ink back out — decades of thumbs on the cap
+  g.globalCompositeOperation = 'destination-out'
+  for (let i = 0; i < 520; i++) {
+    const a = Math.random() * Math.PI * 2
+    const r = Math.random() * size * 0.42
+    g.fillStyle = `rgba(0,0,0,${0.25 + Math.random() * 0.55})`
+    const w = 1 + Math.random() * 2.6
+    g.fillRect(size / 2 + Math.cos(a) * r, size / 2 + Math.sin(a) * r, w, w * (0.5 + Math.random()))
+  }
+  g.globalCompositeOperation = 'source-over'
+  return c
+}
+
 function capsuleGeometry(start, end, width) {
   const r = width / 2
   const shape = new THREE.Shape()
@@ -220,15 +263,27 @@ export default function Knob() {
   const spring = useRef({ a: angleFor(getState().bpm), v: 0 })
   const wobble = useRef({ a: 0, v: 0, grab: 0 })
   const bpm = useStore((state) => state.bpm)
+  const volume = useStore((state) => state.volume)
+  const knobMode = useStore((state) => state.knobMode)
   const finishIndex = useStore((state) => state.finish)
-  const ringAccent = getFinish(finishIndex).accent
+  const finish = getFinish(finishIndex)
+  const ringAccent = finish.accent
+  // Coloured skins get a dial tinted to a dark version of their accent; the
+  // ivory machine keeps its bare-aluminium dial.
+  const knobTint = useMemo(
+    () => {
+      if (finish.id === 'ivory') return null
+      return new THREE.Color(finish.accent).lerp(new THREE.Color('#000000'), 0.7)
+    },
+    [finish.id, finish.accent],
+  )
   const ringTarget = useMemo(() => {
-    const emissive = new THREE.Color(ringAccent)
+    const emissive = new THREE.Color(knobMode === 'volume' ? VOLUME_RING : ringAccent)
     return {
       emissive,
       surface: emissive.clone().lerp(new THREE.Color('#ffffff'), 0.38),
     }
-  }, [ringAccent])
+  }, [ringAccent, knobMode])
 
   const {
     metalColor,
@@ -259,6 +314,10 @@ export default function Knob() {
     sideBrush: memo(
       'knob:solid-side-brush-frozen-v1',
       () => toTexture(sideBrushCanvas(512), { srgb: true, aniso: 16 }),
+    ),
+    pushCap: memo(
+      'knob:push-cap-v3',
+      () => toTexture(pushCapCanvas(256), { srgb: true, aniso: 8 }),
     ),
   }), [])
 
@@ -326,6 +385,24 @@ export default function Knob() {
     }),
   }), [faceRoughness, metalColor, metalEnv, textures])
 
+  // Tint targets, not new materials: rebuilding the dial's materials on a skin
+  // change forces a shader recompile and hitches the switch. The frame loop
+  // eases the existing colours instead, matching the ring's crossfade.
+  const tintTargets = useMemo(() => {
+    const mix = (hex) => {
+      const c = new THREE.Color(hex)
+      return knobTint ? c.lerp(knobTint, 0.78) : c
+    }
+    return {
+      face: mix(metalColor),
+      knurl: mix('#bdc3c5'),
+      band: mix('#e4e8e9'),
+      bevel: mix('#cbd0d1'),
+      groove: mix('#303438'),
+      indicator: mix('#f2f4f4'),
+    }
+  }, [knobTint, metalColor])
+
   useEffect(() => () => {
     document.body.style.cursor = ''
   }, [])
@@ -339,7 +416,10 @@ export default function Knob() {
     const dt = Math.min(delta, 1 / 30)
 
     const motion = spring.current
-    const target = angleFor(Math.round(bpm / DETENT) * DETENT)
+    // tempo springs between detents; volume is a smooth continuous sweep
+    const target = knobMode === 'volume'
+      ? angleForVolume(volume)
+      : angleFor(Math.round(bpm / DETENT) * DETENT)
     motion.v += ((target - motion.a) * 300 - motion.v * 21) * dt
     motion.a += motion.v * dt
     if (spin.current) spin.current.rotation.z = motion.a
@@ -359,6 +439,7 @@ export default function Knob() {
     const ringBlend = 1 - Math.exp(-4.2 * dt)
     materials.ringLight.color.lerp(ringTarget.surface, ringBlend)
     materials.ringLight.emissive.lerp(ringTarget.emissive, ringBlend)
+    for (const key in tintTargets) materials[key].color.lerp(tintTargets[key], ringBlend)
   })
 
   const updateCursor = () => {
@@ -374,7 +455,7 @@ export default function Knob() {
     >
       <group
         ref={rock}
-        scale={0.9}
+        scale={1.035}
         onPointerOver={(event) => {
           event.stopPropagation()
           hover.current = true
@@ -387,7 +468,12 @@ export default function Knob() {
         onPointerDown={(event) => {
           event.stopPropagation()
           event.target.setPointerCapture(event.pointerId)
-          drag.current = { y: event.clientY, bpm: getState().bpm }
+          drag.current = {
+            y: event.clientY,
+            bpm: getState().bpm,
+            volume: getState().volume,
+            moved: false,
+          }
           wobble.current.v += 0.9
           updateCursor()
         }}
@@ -396,7 +482,13 @@ export default function Knob() {
           if (!start) return
           event.stopPropagation()
           const dy = start.y - event.clientY
-          actions.setBpm(start.bpm + dy * (event.shiftKey ? 0.07 : 0.3))
+          if (Math.abs(dy) >= 3) start.moved = true
+          if (!start.moved) return
+          if (getState().knobMode === 'volume') {
+            actions.setVolume(start.volume + dy * (event.shiftKey ? 0.001 : 0.004))
+          } else {
+            actions.setBpm(start.bpm + dy * (event.shiftKey ? 0.07 : 0.3))
+          }
           wobble.current.v += THREE.MathUtils.clamp(
             (event.movementY || 0) * 0.012,
             -0.3,
@@ -404,9 +496,12 @@ export default function Knob() {
           )
         }}
         onPointerUp={(event) => {
-          if (!drag.current) return
+          const start = drag.current
+          if (!start) return
           drag.current = null
           event.target.releasePointerCapture?.(event.pointerId)
+          // a clean click (no drag) flips the dial between tempo and volume
+          if (!start.moved) actions.toggleKnobMode()
           wobble.current.v -= 0.6
           updateCursor()
         }}
@@ -487,6 +582,20 @@ export default function Knob() {
             material={materials.indicator}
           />
         </group>
+
+        {/* Static engraved legend over the face center — advertises that the
+            dial is also a button that swaps between tempo and volume. Sits
+            outside the spin group so the text stays upright through detents. */}
+        <mesh position={[0, 0, RIM_Z + 0.006]}>
+          <circleGeometry args={[0.62, 48]} />
+          <meshBasicMaterial
+            map={textures.pushCap}
+            transparent
+            depthWrite={false}
+            polygonOffset
+            polygonOffsetFactor={-6}
+          />
+        </mesh>
       </group>
     </group>
   )

@@ -1,4 +1,7 @@
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
+import { useFrame } from '@react-three/fiber'
+import * as THREE from 'three'
+import { useControls } from 'leva'
 import Keycap from './Keycap'
 import { capColorMap } from './capMaterials'
 import { useStore, actions, live, TRACKS } from '../state/store'
@@ -9,6 +12,40 @@ import {
 import { FINISHES, getFinish } from '../finishes'
 
 const CAP_Z = PLATE_Z + 0.02
+
+const CHIP_DIM = new THREE.Color('#6b6760')
+const CHIP_ACCENTS = FINISHES.map((f) => new THREE.Color(f.accent))
+
+// The lit chip glides between positions instead of snapping: width, color and
+// opacity all damp toward the active finish each frame.
+function FinishChips({ finish }) {
+  const refs = useRef([])
+  useFrame((_, delta) => {
+    refs.current.forEach((mesh, index) => {
+      if (!mesh) return
+      const on = index === finish
+      mesh.scale.x = THREE.MathUtils.damp(mesh.scale.x, on ? 0.54 / 0.38 : 1, 7, delta)
+      const mat = mesh.material
+      mat.opacity = THREE.MathUtils.damp(mat.opacity, on ? 1 : 0.48, 7, delta)
+      mat.color.lerp(on ? CHIP_ACCENTS[index] : CHIP_DIM, 1 - Math.exp(-7 * delta))
+    })
+  })
+  return (
+    <group position={[0, 0, 0.905]} renderOrder={2}>
+      {FINISHES.map((option, index) => (
+        <mesh key={option.id} ref={(m) => (refs.current[index] = m)} position={[0, (index - (FINISHES.length - 1) / 2) * 0.34, 0]}>
+          <boxGeometry args={[0.38, 0.09, 0.018]} />
+          <meshBasicMaterial
+            color={index === finish ? option.accent : '#6b6760'}
+            transparent
+            opacity={index === finish ? 1 : 0.48}
+            depthWrite={false}
+          />
+        </mesh>
+      ))}
+    </group>
+  )
+}
 
 // Step caps read 1 when programmed, 0 when empty — the pattern is literally
 // printed on the hardware.
@@ -97,6 +134,14 @@ export default function Keys() {
   const activeFinish = getFinish(finish)
   const keys = activeFinish.keys
 
+  // live-tunable lacquer, layered over the finish's own material block
+  const coat = useControls('Clearcoat', {
+    clearcoat: { value: 0.9, min: 0, max: 1, step: 0.01 },
+    clearcoatRoughness: { value: 0.14, min: 0, max: 1, step: 0.01 },
+    envMapIntensity: { value: 1.25, min: 0, max: 3, step: 0.05 },
+  })
+  const capMaterialProps = useMemo(() => ({ ...keys.material, ...coat }), [keys, coat])
+
   const trackMaps = useMemo(
     () => Object.fromEntries(TRACKS.map((t) => [
       t.id,
@@ -165,7 +210,7 @@ export default function Keys() {
           map={trackMaps[t.id]}
           roughness={keys.modifierRough}
           metalness={keys.metalness}
-          materialProps={keys.material}
+          materialProps={capMaterialProps}
           depth={track === t.id ? 1 : 0}
           onPress={() => actions.selectTrack(t.id)}
         >
@@ -182,7 +227,7 @@ export default function Keys() {
         map={swingMap}
         roughness={keys.modifierRough}
         metalness={keys.metalness}
-        materialProps={keys.material}
+        materialProps={capMaterialProps}
         onPress={() => actions.cycleSwing()}
       >
         {keys.glyphGlow && <GlowGlyph type="swing" color={keys.glyphGlow} />}
@@ -200,7 +245,7 @@ export default function Keys() {
             map={stepMap(activeFinish, !!v, i)}
             roughness={keys.stepRough}
             metalness={keys.metalness * 0.45}
-            materialProps={keys.material}
+            materialProps={capMaterialProps}
             depth={v ? 0.35 + v * 0.65 : 0}
             pulse={() => (live.step === i ? 1 : 0)}
             onPress={() => actions.toggleStep(i)}
@@ -223,24 +268,12 @@ export default function Keys() {
         map={clearMap}
         roughness={keys.modifierRough}
         metalness={Math.max(0.3, keys.metalness)}
-        materialProps={keys.material}
+        materialProps={capMaterialProps}
         onPress={() => actions.cycleFinish()}
       >
         {/* Three finish chips turn the old clear symbol into a tactile material
             selector. The lit chip previews which surface is currently active. */}
-        <group position={[0, 0, 0.905]} renderOrder={2}>
-          {FINISHES.map((option, index) => (
-            <mesh key={option.id} position={[0, (index - 1) * 0.34, 0]}>
-              <boxGeometry args={[index === finish ? 0.54 : 0.38, 0.09, 0.018]} />
-              <meshBasicMaterial
-                color={index === finish ? option.accent : '#6b6760'}
-                transparent
-                opacity={index === finish ? 1 : 0.48}
-                depthWrite={false}
-              />
-            </mesh>
-          ))}
-        </group>
+        <FinishChips finish={finish} />
       </Keycap>
       <Keycap
         introIndex={22}
@@ -251,7 +284,7 @@ export default function Keys() {
         map={playMap}
         roughness={keys.playRough}
         metalness={keys.metalness}
-        materialProps={keys.material}
+        materialProps={capMaterialProps}
         depth={playing ? 1 : 0}
         onPress={() => actions.togglePlay()}
       >

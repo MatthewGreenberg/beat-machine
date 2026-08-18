@@ -2,6 +2,8 @@ import { useMemo } from 'react'
 import { Environment, Lightformer } from '@react-three/drei'
 import { useControls } from 'leva'
 import * as THREE from 'three'
+import { useStore } from '../state/store'
+import { getFinish } from '../finishes'
 
 // Reference look: an object lit in a black room. One hard key rakes the face
 // from upper-left-front, a cool sliver skims the right edge, and there is no
@@ -25,7 +27,6 @@ export default function Lighting() {
     rimIntensity,
     rimColor,
     bounceIntensity,
-    bounceColor,
   } = useControls('Lighting', {
     envIntensity: { value: 0.55, min: 0, max: 2, step: 0.05 },
     softbox: { value: 1, min: 0, max: 4, step: 0.05 },
@@ -37,9 +38,12 @@ export default function Lighting() {
     keyColor: '#fff4e6',
     rimIntensity: { value: 900, min: 0, max: 3000, step: 50 },
     rimColor: '#a8bcd8',
-    bounceIntensity: { value: 0, min: 0, max: 1500, step: 10 },
-    bounceColor: '#2c7258',
+    bounceIntensity: { value: 1500, min: 0, max: 3000, step: 10 },
   })
+
+  // bounce is fill reflected off the room, so it takes the backdrop's glow
+  // colour and follows the finish instead of a hand-picked constant
+  const bounceColor = getFinish(useStore((s) => s.finish)).background.glow
 
   return (
     <>

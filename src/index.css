@@ -12,87 +12,98 @@ body {
 
 .stage { position: fixed; inset: 0; }
 
-.hud {
+/* ---- FX panel ------------------------------------------------------------
+   The canvas paints everything (orb, panel, faders); the DOM on top is only
+   labels and native range inputs, which buy drag + arrow keys + a11y free. */
+
+.fx {
   position: fixed;
-  left: 0; right: 0; bottom: 18px;
-  display: flex;
-  gap: 18px;
-  justify-content: center;
-  align-items: center;
-  text-transform: uppercase;
+  left: 50%;
+  bottom: -90px;
+  transform: translateX(-50%);
   pointer-events: none;
-  mix-blend-mode: screen;
-  animation: hud-arrival 700ms 1.4s both ease-out;
+  transition: bottom 420ms cubic-bezier(0.22, 1, 0.36, 1);
+  animation: fx-arrival 700ms 1.4s both ease-out;
+}
+.fx[data-open] { bottom: -28px; }
+
+@keyframes fx-arrival {
+  from { opacity: 0; transform: translate(-50%, 9px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-@keyframes hud-arrival {
-  from { opacity: 0; transform: translateY(7px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+.fx-canvas { position: absolute; inset: 0; display: block; pointer-events: none; }
 
-.hud .dot { width: 6px; height: 6px; border-radius: 50%; background: #3a3a3a; }
-.hud .dot.on { background: #ff6a3d; box-shadow: 0 0 10px #ff6a3d; }
-.hud .finish-name {
-  color: var(--finish-accent);
-  transition: color 420ms ease, text-shadow 420ms ease;
-  text-shadow: 0 0 14px color-mix(in srgb, var(--finish-accent), transparent 35%);
-}
-.finish-picker {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  pointer-events: auto;
-}
-.finish-picker button {
-  position: relative;
-  appearance: none;
+.fx-toggle {
+  position: absolute;
+  left: 50%; top: 50%;
+  padding: 0;
   border: 0;
-  border-bottom: 1px solid #34312e;
-  padding: 4px 3px 3px;
-  background: transparent;
-  color: #55514c;
-  font: inherit;
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  cursor: pointer;
-  transition: color 180ms ease, border-color 180ms ease, text-shadow 180ms ease;
-}
-.finish-picker button::before {
-  content: "";
-  display: inline-block;
-  width: 4px;
-  height: 4px;
-  margin-right: 4px;
   border-radius: 50%;
-  background: var(--swatch);
-  opacity: 0.35;
-  transition: opacity 180ms ease, box-shadow 180ms ease;
+  background: transparent;
+  pointer-events: auto;
+  cursor: pointer;
+  transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1),
+              height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+              transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
-.finish-picker button:hover,
-.finish-picker button:focus-visible,
-.finish-picker button.active {
-  color: #d6d1c8;
-  border-color: var(--swatch);
-  outline: none;
-}
-.finish-picker button.active::before {
-  opacity: 1;
-  box-shadow: 0 0 9px var(--swatch);
-}
-.hud .hint { color: #3d3b38; }
+.fx-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
 
-@media (max-width: 720px) {
-  .hud {
-    bottom: 12px;
-    gap: 10px;
-    font-size: 9px;
-    letter-spacing: 0.1em;
-  }
+.fx-rows { position: absolute; inset: 0; pointer-events: none; }
 
-  .hud .hint,
-  .hud > span:nth-child(4) { display: none; }
+.fx-row {
+  position: absolute;
+  height: 26px;
+  opacity: 0;
+  transform: translateY(calc(-50% + 9px));
+  transition: opacity 260ms ease, transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+  transition-delay: calc(var(--i) * 45ms);
+}
+.fx[data-open] .fx-row { opacity: 1; transform: translateY(-50%); pointer-events: auto; }
+
+.fx-label,
+.fx-value {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  text-transform: uppercase;
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  white-space: nowrap;
+}
+.fx-label { left: 0; width: 84px; color: #6f6a63; }
+.fx-value {
+  right: 0;
+  width: 62px;
+  text-align: right;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  transition: color 420ms ease;
+}
+
+/* invisible: the canvas draws the fader, the input just owns the interaction */
+.fx-row input {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  height: 26px;
+  margin: 0;
+  opacity: 0;
+  appearance: none;
+  -webkit-appearance: none;
+  background: transparent;
+  cursor: grab;
+}
+.fx-row input:active { cursor: grabbing; }
+.fx-row input::-webkit-slider-thumb { -webkit-appearance: none; width: 2px; height: 26px; }
+.fx-row input::-moz-range-thumb { width: 2px; height: 26px; border: 0; border-radius: 0; }
+
+@media (max-width: 620px) {
+  .fx { transform: translateX(-50%) scale(0.78); transform-origin: 50% 100%; }
+  .fx[data-open] { bottom: -52px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .hud { animation: none; }
+  .fx { animation: none; transition: none; }
+  .fx-row, .fx-toggle { transition: none; }
 }

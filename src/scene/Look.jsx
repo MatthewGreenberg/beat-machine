@@ -17,6 +17,8 @@ const vertexShader = `
   uniform float uTransition;
   uniform vec2 uBubbleCenter;
   uniform float uAspect;
+  uniform float uBulge;
+  uniform float uBulgeWidth;
 
   void main() {
     vUv = uv;
@@ -31,19 +33,19 @@ const vertexShader = `
     float radius = mix(-0.08, 1.05, uTransition);
     radius += sin(angle * 7.0 + uTime * 1.6) * 0.012 * energy;
 
-    // A narrow crest physically bows the subdivided backdrop toward camera.
+    // A broad crest physically bows the subdivided backdrop toward camera.
     // The shallow cap behind it makes the transition feel like a convex CRT
     // screen swelling outward instead of a flat circular mask.
-    float crest = exp(-pow((distanceToCenter - radius) * 10.0, 2.0));
+    float crest = exp(-pow((distanceToCenter - radius) * (5.0 / uBulgeWidth), 2.0));
     float cap = radius > 0.0
-      ? pow(max(0.0, 1.0 - distanceToCenter / radius), 2.0)
+      ? pow(max(0.0, 1.0 - distanceToCenter / radius), 1.3)
       : 0.0;
-    vBubbleLift = (crest * 0.84 + cap * 0.78) * energy;
+    vBubbleLift = (crest * 1.45 + cap * 1.25) * energy * uBulge;
 
     vec3 displaced = position;
-    displaced.z += vBubbleLift * 11.5;
+    displaced.z += vBubbleLift * 22.0;
     vec2 direction = bubble / max(distanceToCenter, 0.0001);
-    displaced.xy += direction * (crest * 0.62 + cap * 0.28) * energy;
+    displaced.xy += direction * (crest * 1.15 + cap * 0.55) * energy * uBulge;
 
     gl_Position = projectionMatrix * modelViewMatrix * vec4(displaced, 1.0);
   }
@@ -70,6 +72,8 @@ const fragmentShader = `
   uniform vec2 uBubbleCenter;
   uniform float uAspect;
   uniform vec2 uResolution;
+  uniform float uBulge;
+  uniform float uBulgeWidth;
 
   float hash(vec2 p) {
     p = fract(p * vec2(123.34, 456.21));
@@ -120,20 +124,20 @@ const fragmentShader = `
     float radius = mix(-0.08, 1.05, uTransition);
     radius += sin(angle * 7.0 + uTime * 1.6) * 0.012 * energy;
 
-    float crest = exp(-pow((distanceToCenter - radius) * 34.0, 2.0));
+    float crest = exp(-pow((distanceToCenter - radius) * (15.0 / uBulgeWidth), 2.0));
     float cap = radius > 0.0
-      ? pow(max(0.0, 1.0 - distanceToCenter / radius), 1.7)
+      ? pow(max(0.0, 1.0 - distanceToCenter / radius), 1.2)
       : 0.0;
 
     // Refract both sides of the moving boundary in opposite directions. The
     // new skin is slightly magnified inside the bubble, like curved glass.
     vec2 fromUv = clamp(
-      uv + uvDirection * crest * energy * 0.022,
+      uv + uvDirection * crest * energy * 0.055 * uBulge,
       vec2(0.001),
       vec2(0.999)
     );
     vec2 toUv = clamp(
-      uv - uvDirection * (cap * 0.070 + crest * 0.020) * energy,
+      uv - uvDirection * (cap * 0.150 + crest * 0.050) * energy * uBulge,
       vec2(0.001),
       vec2(0.999)
     );
@@ -146,8 +150,8 @@ const fragmentShader = `
     );
 
     float reveal = 1.0 - smoothstep(
-      radius - 0.045,
-      radius + 0.035,
+      radius - 0.090 * uBulgeWidth,
+      radius + 0.070 * uBulgeWidth,
       distanceToCenter
     );
     vec3 color = mix(fromColor, toColor, reveal);
@@ -163,7 +167,7 @@ const fragmentShader = `
 
     // The raised mesh crest catches a final soft sheen, connecting the actual
     // vertex bow to the refracted fragment boundary.
-    color += vec3(0.28, 0.42, 0.50) * vBubbleLift * 0.40;
+    color += vec3(0.28, 0.42, 0.50) * vBubbleLift * 0.30;
     color += (hash(gl_FragCoord.xy + uTime) - 0.5) * (0.012 + energy * 0.016);
 
     gl_FragColor = vec4(color, 1.0);
@@ -179,8 +183,10 @@ export default function Look() {
   const transition = useRef(INITIAL_TRANSITION)
   const transitionDuration = useRef(INTRO_DISABLED ? 0.85 : 1.75)
 
-  const { exposure } = useControls('Look', {
+  const { exposure, bulge, bulgeWidth } = useControls('Look', {
     exposure: { value: 0.92, min: 0.2, max: 2.5, step: 0.01 },
+    bulge: { value: 0.45, min: 0, max: 6, step: 0.05 },
+    bulgeWidth: { value: 1, min: 0.1, max: 5, step: 0.05 },
   })
   const gl = useThree((s) => s.gl)
   const size = useThree((s) => s.size)
@@ -200,6 +206,8 @@ export default function Look() {
     uToMode: { value: finishIndex },
     uTransition: { value: INITIAL_TRANSITION },
     uBubbleCenter: { value: new THREE.Vector2(0.5, 0.54) },
+    uBulge: { value: 0.45 },
+    uBulgeWidth: { value: 1 },
     uAspect: { value: size.width / size.height },
     uResolution: {
       value: new THREE.Vector2(
@@ -215,6 +223,12 @@ export default function Look() {
       material.current.uniforms.uAspect.value = size.width / size.height
     }
   }, [size.height, size.width])
+
+  useEffect(() => {
+    if (!material.current) return
+    material.current.uniforms.uBulge.value = bulge
+    material.current.uniforms.uBulgeWidth.value = bulgeWidth
+  }, [bulge, bulgeWidth])
 
   useEffect(() => {
     const mat = material.current

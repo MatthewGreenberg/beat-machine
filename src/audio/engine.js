@@ -4,6 +4,69 @@
 let ctx = null
 let master = null
 let comp = null
+let fx = null
+
+// ---- Master FX bus ---------------------------------------------------------
+// comp -> drive -> filter -> [dry | tempo-synced delay | plate] -> master
+
+function driveCurve() {
+  const n = 1024
+  const curve = new Float32Array(n)
+  for (let i = 0; i < n; i++) curve[i] = Math.tanh(((i / (n - 1)) * 2 - 1) * 2.2)
+  return curve
+}
+
+// ponytail: generated noise impulse instead of shipping an IR file.
+function impulse(c, seconds = 1.9, decay = 3.4) {
+  const len = Math.floor(c.sampleRate * seconds)
+  const buf = c.createBuffer(2, len, c.sampleRate)
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch)
+    for (let i = 0; i < len; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay)
+    }
+  }
+  return buf
+}
+
+function buildFx(c, from, to) {
+  const pre = c.createGain()
+  const shaper = c.createWaveShaper()
+  shaper.curve = driveCurve()
+  shaper.oversample = '2x'
+  const post = c.createGain()
+
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.value = 18000
+  filter.Q.value = 0.9
+
+  const delay = c.createDelay(1.5)
+  delay.delayTime.value = 0.25
+  const feedback = c.createGain()
+  feedback.gain.value = 0.34
+  const damp = c.createBiquadFilter()
+  damp.type = 'lowpass'
+  damp.frequency.value = 2600
+  const delaySend = c.createGain()
+  delaySend.gain.value = 0
+
+  const reverb = c.createConvolver()
+  reverb.buffer = impulse(c)
+  const revSend = c.createGain()
+  revSend.gain.value = 0
+
+  from.connect(pre)
+  pre.connect(shaper)
+  shaper.connect(post)
+  post.connect(filter)
+  filter.connect(to)                                   // dry
+  filter.connect(delaySend).connect(delay).connect(to)
+  delay.connect(damp).connect(feedback).connect(delay) // damped feedback loop
+  filter.connect(revSend).connect(reverb).connect(to)
+
+  return { pre, post, filter, delaySend, revSend, delay }
+}
 
 export function getContext() {
   if (!ctx) {
@@ -14,11 +77,36 @@ export function getContext() {
     comp.attack.value = 0.003
     comp.release.value = 0.15
     master = ctx.createGain()
-    master.gain.value = 0.9
-    comp.connect(master)
+    master.gain.value = 0.5
+    fx = buildFx(ctx, comp, master)
     master.connect(ctx.destination)
   }
   return ctx
+}
+
+// Panel controls, all normalised 0..1.
+export function setFx(name, v) {
+  const c = getContext()
+  const t = c.currentTime
+  const ramp = 0.03
+  if (name === 'filter') fx.filter.frequency.setTargetAtTime(180 * Math.pow(100, v), t, ramp)
+  else if (name === 'drive') {
+    fx.pre.gain.setTargetAtTime(1 + v * 7, t, ramp)
+    fx.post.gain.setTargetAtTime(1 / (1 + v * 2.6), t, ramp)
+  } else if (name === 'delay') fx.delaySend.gain.setTargetAtTime(v * 0.55, t, ramp)
+  else if (name === 'space') fx.revSend.gain.setTargetAtTime(v * 0.75, t, ramp)
+}
+
+// Keep the delay on an eighth note so it never smears against the pattern.
+export function syncDelay(bpm) {
+  const c = getContext()
+  fx.delay.delayTime.setTargetAtTime(Math.min(1.4, 60 / bpm / 2), c.currentTime, 0.05)
+}
+
+export function setMasterVolume(v) {
+  const c = getContext()
+  // short ramp instead of a snap so dragging the dial doesn't zipper
+  master.gain.setTargetAtTime(v, c.currentTime, 0.02)
 }
 
 export function resume() {
@@ -128,9 +216,44 @@ export const TRACKS = [
   { id: 'clap', label: 'CLAP' },
 ]
 
+// ---- Sample kits -----------------------------------------------------------
+// public/sounds/<kit>-<track>.wav. Synth voices stay as the fallback: they play
+// while a kit is still decoding, and when no kit is selected.
+
+const buffers = new Map()
+// samples come in hotter than the synth voices — trim to match
+const KIT_GAIN = 0.8
+let kit = null
+
+export function setKit(next) {
+  kit = next
+  if (!next) return
+  const c = getContext()
+  for (const t of TRACKS) {
+    const key = `${next}-${t.id}`
+    if (buffers.has(key)) continue
+    buffers.set(key, null) // claim the slot so we fetch once
+    fetch(`/sounds/${key}.wav`)
+      .then((r) => r.arrayBuffer())
+      .then((b) => c.decodeAudioData(b))
+      .then((buf) => buffers.set(key, buf))
+      .catch(() => buffers.delete(key)) // let a later setKit retry
+  }
+}
+
 export function trigger(trackId, when, gain = 1) {
   const c = resume()
   const t = when ?? c.currentTime
+  const buf = kit && buffers.get(`${kit}-${trackId}`)
+  if (buf) {
+    const src = c.createBufferSource()
+    src.buffer = buf
+    const g = c.createGain()
+    g.gain.value = gain * KIT_GAIN
+    src.connect(g).connect(comp)
+    src.start(t)
+    return
+  }
   voices[trackId]?.(c, t, gain * (VOICE_GAIN[trackId] ?? 1))
 }
 

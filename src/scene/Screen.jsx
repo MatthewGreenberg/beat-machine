@@ -38,6 +38,8 @@ const PIXEL_DENSITY = 0.34
 const UI_FADE_DURATION = 0.34
 const UI_FADE_STEPS = 16
 const BOOT_DURATION = PIXEL_DELAY + PIXEL_DURATION + UI_FADE_DURATION
+const MODE_STEPS = 12
+const MODE_DURATION = 0.34
 
 const smoothstep = (value) => value * value * (3 - 2 * value)
 
@@ -178,6 +180,7 @@ export default function Screen() {
 
   const last = useRef('')
   const stepDrag = useRef(null)
+  const modeAnim = useRef({ prev: null, from: null, at: -1 })
   const contentMaterial = useRef()
   const lcdLamp = useRef()
   const bootStartedAt = useRef(null)
@@ -247,13 +250,32 @@ export default function Screen() {
     }
 
     const s = getState()
+
+    // BPM↔VOL readout roll: quantised progress so the slide advances in whole
+    // dot rows and the texture only redraws when a row actually moves
+    const anim = modeAnim.current
+    if (anim.prev === null) anim.prev = s.knobMode
+    if (s.knobMode !== anim.prev) {
+      anim.from = anim.prev
+      anim.prev = s.knobMode
+      anim.at = clock.elapsedTime
+    }
+    let modeStep = MODE_STEPS
+    if (anim.at >= 0) {
+      modeStep = Math.min(
+        MODE_STEPS,
+        Math.round(((clock.elapsedTime - anim.at) / MODE_DURATION) * MODE_STEPS),
+      )
+    }
+    const modeMix = modeStep / MODE_STEPS
+
     const trackSwing = s.swing[s.track] ?? 0
     const stateKey =
-      `${s.bpm}|${s.track}|${trackSwing}|${live.step}|${s.playing}|${s.pattern[s.track].join(',')}`
+      `${s.bpm}|${s.knobMode}|${modeStep}|${s.volume}|${s.track}|${trackSwing}|${live.step}|${s.playing}|${s.pattern[s.track].join(',')}`
     const key = pixelStep === null ? stateKey : `boot|${pixelStep}|${uiMix}`
     if (key === last.current) return
     last.current = key
-    draw(g, contentG, tex, s, grid, pixelStep, uiMix)
+    draw(g, contentG, tex, s, grid, pixelStep, uiMix, { mix: modeMix, from: anim.from })
   })
 
   const bezelOuterW = SCREEN_W + BEZEL_MARGIN * 2
@@ -380,7 +402,7 @@ export default function Screen() {
   )
 }
 
-function draw(g, cg, tex, s, grid, pixelStep = null, uiMix = 1) {
+function draw(g, cg, tex, s, grid, pixelStep = null, uiMix = 1, mode = null) {
   const { backlight, blotch, dead, stuck, ambientMask, ambientAmt, blobs } = grid
 
   // base panel colour — near-black substrate. Only a faint teal cast at the
@@ -418,10 +440,35 @@ function draw(g, cg, tex, s, grid, pixelStep = null, uiMix = 1) {
     // BPM — indented clear of the panel's left-edge sticker (owned by
     // Props.jsx) which overlaps roughly the first 11% of the screen width.
     const contentX0 = TEX_W * 0.15
-    cg.font = `700 ${Math.round(TEX_H * 0.4)}px "Courier New", monospace`
-    cg.fillText(String(s.bpm).padStart(3, '0'), contentX0, TEX_H * 0.46)
-    cg.font = `700 ${Math.round(TEX_H * 0.155)}px "Courier New", monospace`
-    cg.fillText('BPM', contentX0, TEX_H * 0.62)
+    // the dial owns this readout: tempo normally, master volume after a click
+    const readoutFor = (m) => m === 'volume'
+      ? [String(Math.round(s.volume * 100)).padStart(3, '0'), 'VOL']
+      : [String(s.bpm).padStart(3, '0'), 'BPM']
+    const drawReadout = (m, dy) => {
+      const [big, label] = readoutFor(m)
+      cg.font = `700 ${Math.round(TEX_H * 0.4)}px "Courier New", monospace`
+      cg.fillText(big, contentX0, TEX_H * 0.46 + dy)
+      cg.font = `700 ${Math.round(TEX_H * 0.155)}px "Courier New", monospace`
+      cg.fillText(label, contentX0, TEX_H * 0.62 + dy)
+    }
+    if (!mode || mode.mix >= 1 || mode.from == null) {
+      drawReadout(s.knobMode, 0)
+    } else {
+      // odometer roll between the two readouts, clipped to the readout block;
+      // offsets snap to whole dot rows so the motion is chunky LCD steps, not
+      // a smooth slide the panel couldn't display
+      const eased = smoothstep(mode.mix)
+      const dir = s.knobMode === 'volume' ? 1 : -1
+      const roll = TEX_H * 0.62
+      const snap = (v) => Math.round(v / CELL_H) * CELL_H
+      cg.save()
+      cg.beginPath()
+      cg.rect(0, TEX_H * 0.08, TEX_W * 0.6, TEX_H * 0.6)
+      cg.clip()
+      drawReadout(mode.from, snap(-dir * eased * roll))
+      drawReadout(s.knobMode, snap(dir * (1 - eased) * roll))
+      cg.restore()
+    }
 
     // track label, top right — its own row, well clear of the transport row
     // below it so the two never merge into illegible glyphs at dot-matrix res.
