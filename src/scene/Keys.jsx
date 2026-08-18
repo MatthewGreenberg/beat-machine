@@ -13,6 +13,21 @@ import { FINISHES, getFinish } from '../finishes'
 
 const CAP_Z = PLATE_Z + 0.02
 
+// go-go-gadget retraction: each key row drops into the chassis on its own
+// beat before the FX glass sweeps the face — top row leads on the way out,
+// so reassembly on close runs bottom-up. `row` may be fractional for the
+// tall right-column keys that straddle two rows.
+function FxSink({ row, children }) {
+  const ref = useRef()
+  useFrame(() => {
+    const g = ref.current
+    if (!g) return
+    const v = THREE.MathUtils.clamp((live.fxMorph - (0.1 + row * 0.07)) / 0.2, 0, 1)
+    g.position.z = -(v * v * (3 - 2 * v)) * 1.5
+  })
+  return <group ref={ref}>{children}</group>
+}
+
 const CHIP_DIM = new THREE.Color('#6b6760')
 const CHIP_ACCENTS = FINISHES.map((f) => new THREE.Color(f.accent))
 
@@ -200,6 +215,7 @@ export default function Keys() {
   return (
     <group>
       {/* modifier row — track select */}
+      <FxSink row={0}>
       {TRACKS.map((t, i) => (
         <Keycap
           key={t.id}
@@ -232,13 +248,14 @@ export default function Keys() {
       >
         {keys.glyphGlow && <GlowGlyph type="swing" color={keys.glyphGlow} />}
       </Keycap>
+      </FxSink>
 
       {/* 16 step pads */}
       {row.map((v, i) => {
         const { col, row: r } = stepPos(i)
         return (
+          <FxSink row={r} key={i}>
           <Keycap
-            key={i}
             introIndex={5 + i}
             position={[keyX(col), keyY(r), CAP_Z]}
             color={keys.step}
@@ -255,10 +272,12 @@ export default function Keys() {
             }}
             cursor="ns-resize"
           />
+          </FxSink>
         )
       })}
 
       {/* right column: finish selector above, orange transport below */}
+      <FxSink row={1.5}>
       <Keycap
         introIndex={21}
         position={[keyX(CLEAR_KEY.col), keyY(CLEAR_KEY.row, CLEAR_KEY.span), CAP_Z]}
@@ -275,6 +294,8 @@ export default function Keys() {
             selector. The lit chip previews which surface is currently active. */}
         <FinishChips finish={finish} />
       </Keycap>
+      </FxSink>
+      <FxSink row={3.5}>
       <Keycap
         introIndex={22}
         position={[keyX(PLAY_KEY.col), keyY(PLAY_KEY.row, PLAY_KEY.span), CAP_Z]}
@@ -298,6 +319,7 @@ export default function Keys() {
           />
         </mesh>
       </Keycap>
+      </FxSink>
     </group>
   )
 }

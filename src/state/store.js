@@ -8,6 +8,7 @@ import {
   setKit,
   syncDelay,
   setFx as setAudioFx,
+  uiWhoosh,
 } from '../audio/engine'
 import { FINISHES } from '../finishes'
 
@@ -51,7 +52,7 @@ let state = {
 }
 
 // Mutable mirror the render loop reads every frame without triggering React.
-export const live = { step: -1, hits: new Map(), knob: 0, fxMorph: 0 }
+export const live = { step: -1, hits: new Map(), knob: 0, fxMorph: 0, dollyVel: 0 }
 
 function set(patch) {
   state = { ...state, ...patch }
@@ -119,10 +120,13 @@ export const actions = {
     set({ knobMode: state.knobMode === 'bpm' ? 'volume' : 'bpm' })
   },
   toggleFx() {
-    set({ fxOpen: !state.fxOpen })
+    const next = !state.fxOpen
+    resume()
+    uiWhoosh(next)
+    set({ fxOpen: next })
   },
   closeFx() {
-    if (state.fxOpen) set({ fxOpen: false })
+    if (state.fxOpen) actions.toggleFx()
   },
   setFxValue(name, value) {
     if (!(name in state.fx)) return

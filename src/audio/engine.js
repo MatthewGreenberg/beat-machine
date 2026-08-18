@@ -115,6 +115,77 @@ export function resume() {
   return c
 }
 
+// Mechanical foley for the FX-panel transformation. Everything connects
+// straight to master — the panel's own sound must never be coloured by
+// whatever FILTER/DRIVE settings the panel is about to edit.
+
+// Short filtered-noise tick: a relay/latch.
+function mechClick(c, t, gain = 0.045, freq = 2600) {
+  const n = c.createBufferSource()
+  n.buffer = noiseBuffer(c)
+  const f = c.createBiquadFilter()
+  f.type = 'bandpass'
+  f.frequency.value = freq
+  f.Q.value = 2.2
+  const g = c.createGain()
+  g.gain.setValueAtTime(gain, t)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045)
+  n.connect(f).connect(g).connect(master)
+  n.start(t)
+  n.stop(t + 0.06)
+}
+
+// Narrow-band noise with a fast gain flutter — mechanism friction/whirr,
+// no tonal oscillator anywhere. f0→f1 sweeps the band like motor pitch.
+function mechWhirr(c, t, dur, f0, f1, gain = 0.04) {
+  gain *= 2 // narrow-band noise carries far less energy than the old saw
+  const n = c.createBufferSource()
+  n.buffer = noiseBuffer(c)
+  const bp = c.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.Q.value = 3.5
+  bp.frequency.setValueAtTime(f0 * 6, t)
+  bp.frequency.linearRampToValueAtTime(f1 * 6, t + dur)
+  const g = c.createGain()
+  g.gain.setValueAtTime(0.0001, t)
+  g.gain.exponentialRampToValueAtTime(gain, t + 0.04)
+  g.gain.setValueAtTime(gain, t + Math.max(0.05, dur - 0.05))
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  const trem = c.createOscillator()
+  trem.frequency.value = 27
+  const tremGain = c.createGain()
+  tremGain.gain.value = gain * 0.45
+  trem.connect(tremGain).connect(g.gain)
+  n.connect(bp).connect(g).connect(master)
+  n.start(t)
+  n.stop(t + dur + 0.02)
+  trem.start(t)
+  trem.stop(t + dur + 0.02)
+}
+
+// Timings mirror the eased 1.25s open / 0.7s close morph in Machine.jsx:
+// dial servo, five row ratchets, horizontal stroke, vertical stroke, latch.
+export function uiWhoosh(open) {
+  const c = getContext()
+  const t = c.currentTime
+  if (open) {
+    mechWhirr(c, t + 0.02, 0.22, 130, 68, 0.03)
+    ;[0.44, 0.5, 0.56, 0.63, 0.69].forEach((d, i) =>
+      mechClick(c, t + d, 0.04, 2200 + i * 180))
+    mechWhirr(c, t + 0.62, 0.17, 92, 126, 0.042)
+    mechClick(c, t + 0.8, 0.05, 1700)
+    mechWhirr(c, t + 0.8, 0.19, 78, 112, 0.045)
+    mechClick(c, t + 1.0, 0.06, 1400)
+  } else {
+    mechWhirr(c, t + 0.02, 0.14, 112, 78, 0.04)
+    mechWhirr(c, t + 0.16, 0.12, 126, 92, 0.038)
+    ;[0.38, 0.43, 0.48, 0.52, 0.57].forEach((d, i) =>
+      mechClick(c, t + d, 0.038, 2600 - i * 150))
+    mechWhirr(c, t + 0.55, 0.28, 68, 118, 0.024)
+    mechClick(c, t + 0.66, 0.045, 1600)
+  }
+}
+
 function noiseBuffer(c) {
   if (!c._noise) {
     const len = c.sampleRate * 2

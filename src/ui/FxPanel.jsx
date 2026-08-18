@@ -47,6 +47,7 @@ uniform float uHover;
 uniform float uPress;
 uniform float uTime;
 uniform float uCloseHot;
+uniform float uX;
 uniform float uVal[5];
 uniform float uHot[5];
 
@@ -75,6 +76,15 @@ void main() {
   float h = clamp(0.5 + 0.5 * (tail - head) / k, 0.0, 1.0);
   float dBlob = mix(tail, head, h) - k * h * (1.0 - h);
 
+  // Editor mode: the blob folds into a close X — same object, new duty.
+  // uX is spring-driven so it snaps past and settles like the open morph.
+  float xm = clamp(uX, 0.0, 1.0);
+  vec2 xp = mat2(0.7071, -0.7071, 0.7071, 0.7071) * (P - uOff * 0.3);
+  float arm = BR * 0.62;
+  float dX = min(sdBox(xp, vec2(arm, 3.2), 3.2), sdBox(xp, vec2(3.2, arm), 3.2))
+           - uPress * 2.5;
+  dBlob = mix(dBlob, dX, xm);
+
   // open: the panel. Blending the two distance fields morphs one into the other.
   vec2 he = vec2(PW * 0.5, PH * 0.5);
   float d = mix(dBlob, sdBox(P, he, PR), o);
@@ -83,7 +93,9 @@ void main() {
   // ---- shut look: ring, faint fill, soft glow. Nothing else. ---------------
   float mRing = smoothstep(6.0, 0.0, abs(d + 2.2));
   float mGlow = exp(-max(d, 0.0) * 0.115) * (0.30 + 0.45 * uPress + 0.28 * uHover);
-  vec3  mCol  = uAccent * (0.22 * body + mRing + mGlow);
+  // As an X it cools toward white so it reads as a UI glyph, warmer on hover.
+  vec3  mAccent = mix(uAccent, vec3(1.0), xm * (0.25 + 0.45 * uCloseHot));
+  vec3  mCol  = mAccent * (0.22 * body + mRing + mGlow);
   float mA    = clamp(0.30 * body + mRing + mGlow * 0.7, 0.0, 1.0);
 
   // ---- open look: glass panel --------------------------------------------
@@ -173,6 +185,7 @@ export default function FxPanel() {
     closeHot: 0,
     accent: 0,
     press: 0,
+    xTarget: 0,
   })
 
   useEffect(() => {
@@ -180,6 +193,10 @@ export default function FxPanel() {
     live.open = false
     live.accent = finish
   }, [finish])
+
+  useEffect(() => {
+    liveRef.current.xTarget = fxOpen ? 1 : 0
+  }, [fxOpen])
 
   useEffect(() => {
     const live = liveRef.current
@@ -209,7 +226,7 @@ export default function FxPanel() {
     gl.clearColor(0, 0, 0, 0)
 
     const U = {}
-    for (const n of ['uRes', 'uDpr', 'uOff', 'uMouse', 'uAccent', 'uOpen', 'uHover', 'uPress', 'uTime', 'uCloseHot']) {
+    for (const n of ['uRes', 'uDpr', 'uOff', 'uMouse', 'uAccent', 'uOpen', 'uHover', 'uPress', 'uTime', 'uCloseHot', 'uX']) {
       U[n] = gl.getUniformLocation(prog, n)
     }
     U.uVal = gl.getUniformLocation(prog, 'uVal[0]')
@@ -231,6 +248,8 @@ export default function FxPanel() {
     let openV = 0
     let hover = 0
     let closeHot = 0
+    let xA = 0
+    let xV = 0
     const accent = [...ACCENTS[0]]
     let raf = 0
     let last = performance.now()
@@ -258,6 +277,15 @@ export default function FxPanel() {
       if (Math.abs(targetOpen - openA) < 0.0008 && Math.abs(openV) < 0.01) {
         openA = targetOpen
         openV = 0
+      }
+
+      // blob→X spring, same overshoot character as the open/close spring
+      xV += (live.xTarget - xA) * 210 * dt
+      xV *= Math.exp(-19 * dt)
+      xA += xV * dt
+      if (Math.abs(live.xTarget - xA) < 0.0008 && Math.abs(xV) < 0.01) {
+        xA = live.xTarget
+        xV = 0
       }
 
       const shut = 1 - Math.min(1, openA)
@@ -290,6 +318,7 @@ export default function FxPanel() {
       gl.uniform1f(U.uHover, hover)
       gl.uniform1f(U.uPress, Math.min(live.press, 1))
       gl.uniform1f(U.uCloseHot, closeHot)
+      gl.uniform1f(U.uX, xA)
       gl.uniform1f(U.uTime, calm ? 0 : now / 1000)
       gl.uniform1fv(U.uVal, val)
       gl.uniform1fv(U.uHot, hot)

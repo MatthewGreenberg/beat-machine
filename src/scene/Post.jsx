@@ -11,8 +11,12 @@ import {
 } from '@react-three/postprocessing'
 import { BlendFunction, KernelSize, ToneMappingMode } from 'postprocessing'
 import { useControls } from 'leva'
+import { useMemo } from 'react'
+import { useFrame } from '@react-three/fiber'
+import * as THREE from 'three'
 import { VIEW, VIEWS, NO_POST } from './views'
 import { useQuality } from './quality'
+import { live } from '../state/store'
 
 // EffectComposer forces renderer.toneMapping = NoToneMapping, so without an
 // explicit ToneMapping effect nothing rolls off and every lit surface clips to
@@ -64,6 +68,20 @@ export default function Post() {
     aberration: { value: 0.0006, min: 0, max: 0.005, step: 0.0001 },
   })
 
+  // Transition punch: chromatic aberration spikes mid-morph and relaxes at
+  // both rests, so entering/leaving the FX editor smears the frame for a beat.
+  // The effect holds this exact Vector2 as its uniform, so mutating it in
+  // place animates the pass without rebuilding anything.
+  const caOffset = useMemo(() => new THREE.Vector2(), [])
+  useFrame(() => {
+    // Driven by dolly speed, so the smear exists only while the camera is
+    // pushing in/out. The multiplier is huge because radialModulation eats
+    // most of the offset away from the screen edges.
+    const pulse = Math.min(Math.abs(live.dollyVel) / 4, 1)
+    const amt = aberration * (1 + pulse * 90)
+    caOffset.set(amt, amt * 1.25)
+  })
+
   if (NO_POST) return null
   const showDof = name !== 'front'
   const compactBloom = quality.bloom === 'compact'
@@ -99,7 +117,7 @@ export default function Post() {
         kernelSize={compactBloom ? KernelSize.MEDIUM : undefined}
       />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
-      <ChromaticAberration offset={[aberration, aberration * 1.25]} radialModulation modulationOffset={0.4} />
+      <ChromaticAberration offset={caOffset} radialModulation modulationOffset={0.4} />
       <Vignette eskil={false} offset={vignetteOffset} darkness={vignetteDark} />
       <Noise opacity={grain} blendFunction={BlendFunction.OVERLAY} />
       {quality.antialias === 'fxaa' && <FXAA />}

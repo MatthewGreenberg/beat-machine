@@ -9,7 +9,9 @@ import { toTexture } from './textures'
 
 const EDITOR_W = BODY_W - 0.48
 const EDITOR_H = BODY_H - 0.5
-const SURFACE_Z = PLATE_Z + 1.74
+// The editor glass sits nearly flush in the chassis face — the machine's own
+// face becomes the screen. Floating it further out reads as a separate slab.
+const SURFACE_Z = PLATE_Z + 0.26
 const SOURCE_W = BODY_W - 4.7
 const SOURCE_H = 2.5
 const CLOSED_X = BODY_W / 2 - SOURCE_W / 2 - 0.55
@@ -168,10 +170,17 @@ function drawReadout(canvas, texture, fx, finishIndex) {
     g.fillText(row.detail, x(-4.15), y(row.y - 0.24))
 
     g.textAlign = 'right'
-    g.font = '700 25px "SFMono-Regular", "Courier New", monospace'
+    g.font = '700 30px "SFMono-Regular", "Courier New", monospace'
     g.letterSpacing = '1px'
+    // Sits ABOVE the fader line: at high values the 3D handle parks under the
+    // right-aligned text and would occlude it. Backing rect clears the shader
+    // grid/trace behind the digits.
+    const valueText = formatValue(row.key, fx[row.key])
+    const valueW = g.measureText(valueText).width
+    g.fillStyle = 'rgba(3,5,6,0.9)'
+    g.fillRect(x(4.15) - valueW - 14, y(row.y + 0.52) - 24, valueW + 28, 48)
     g.fillStyle = accent
-    g.fillText(formatValue(row.key, fx[row.key]), x(4.15), y(row.y + 0.05))
+    g.fillText(valueText, x(4.15), y(row.y + 0.52))
     g.textAlign = 'left'
 
     for (let i = 0; i <= 10; i++) {
@@ -190,18 +199,6 @@ function drawReadout(canvas, texture, fx, finishIndex) {
   g.textAlign = 'right'
   g.fillStyle = accent
   g.fillText(FINISHES[finishIndex].label.toUpperCase(), x(4.15), y(-4.1))
-  g.textAlign = 'center'
-
-  const chipX = [-2.95, -0.98, 0.98, 2.95]
-  FINISHES.forEach((option, index) => {
-    g.font = '600 13px "SFMono-Regular", "Courier New", monospace'
-    g.letterSpacing = '2px'
-    g.fillStyle = index === finishIndex
-      ? 'rgba(241,249,251,0.84)'
-      : 'rgba(193,208,213,0.34)'
-    g.fillText(option.label.toUpperCase(), x(chipX[index]), y(-5.25))
-  })
-
   g.textAlign = 'left'
   g.font = '500 14px "SFMono-Regular", "Courier New", monospace'
   g.letterSpacing = '3px'
@@ -357,6 +354,13 @@ const phase = (progress, start, end) => {
   return value * value * (3 - 2 * value)
 }
 
+// easeOutBack with a restrained ~3% overshoot: the glass lands, breathes past
+// its final size for a frame or two, and settles. That settle is the premium.
+const settle = (value) => {
+  const q = value - 1
+  return 1 + 1.55 * q * q * q + 0.55 * q * q
+}
+
 export default function FxScreen({ morph }) {
   const { fx, finish } = useStore()
   const activeFinish = getFinish(finish)
@@ -394,11 +398,15 @@ export default function FxScreen({ morph }) {
   useFrame(({ clock }, dt) => {
     const frameTime = Math.min(dt, 0.05)
     const mix = morph.current
-    const widthPhase = phase(mix, 0.05, 0.42)
-    const heightPhase = phase(mix, 0.16, 0.72)
-    const depthPhase = phase(mix, 0.08, 0.68)
+    // go-go-gadget extension: the LCD first telescopes HORIZONTALLY across
+    // the faceplate, then extends VERTICALLY down over the face the key rows
+    // vacated (rows finish sinking at 0.58 — see Keys.jsx FxSink). Two
+    // distinct mechanical strokes, each with its own settle.
+    const widthPhase = settle(phase(mix, 0.5, 0.68))
+    const heightPhase = settle(phase(mix, 0.68, 0.92))
+    const depthPhase = phase(mix, 0.5, 0.75)
     const shellAlpha = phase(mix, 0.015, 0.2)
-    const uiAlpha = phase(mix, 0.68, 0.94)
+    const uiAlpha = phase(mix, 0.8, 0.995)
     const group = root.current
     if (!group) return
 
@@ -411,7 +419,6 @@ export default function FxScreen({ morph }) {
       THREE.MathUtils.lerp(CLOSED_SCALE[1], 1, heightPhase),
       1,
     )
-    group.rotation.z = Math.sin(mix * Math.PI) * -0.011
 
     if (backingMaterial.current) backingMaterial.current.opacity = shellAlpha * 0.98
     if (lamp.current) lamp.current.intensity = shellAlpha * 2.2
@@ -432,7 +439,9 @@ export default function FxScreen({ morph }) {
       visuals.current.traverse((item) => {
         const material = item.material
         if (!material || material.isShaderMaterial || material.userData.fxInvisible) return
-        material.opacity = uiAlpha
+        // Controls cascade in top-to-bottom instead of popping on together.
+        const lag = THREE.MathUtils.clamp((6.55 - (item.position.y || 0)) / 13.1, 0, 1)
+        material.opacity = phase(uiAlpha, lag * 0.45, lag * 0.45 + 0.55)
       })
     }
     if (hitLayer.current) hitLayer.current.visible = mix > 0.9

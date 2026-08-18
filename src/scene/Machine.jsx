@@ -24,37 +24,41 @@ const phase = (progress, start, end) => {
 
 export default function Machine() {
   const fxOpen = useStore((state) => state.fxOpen)
+  const raw = useRef(0)
   const morph = useRef(0)
-  const keys = useRef()
   const knob = useRef()
   const screen = useRef()
 
   useFrame((_, dt) => {
     const frameTime = Math.min(dt, 0.05)
-    const duration = fxOpen ? 0.64 : 0.46
-    morph.current = THREE.MathUtils.clamp(
-      morph.current + (fxOpen ? 1 : -1) * frameTime / duration,
+    const duration = fxOpen ? 1.25 : 0.7
+    raw.current = THREE.MathUtils.clamp(
+      raw.current + (fxOpen ? 1 : -1) * frameTime / duration,
       0,
       1,
     )
+    // Constant velocity reads mechanical; the master timeline gets a
+    // smoothstep so every sub-phase inherits a slow start and a soft landing.
+    morph.current = raw.current * raw.current * (3 - 2 * raw.current)
     live.fxMorph = morph.current
 
-    // The LCD is the source. The dial seats first, then the pad bank drops in
-    // rows beneath the advancing glass; the original LCD only releases after
-    // the new surface has inherited its image.
-    const knobPhase = phase(morph.current, 0.04, 0.34)
-    const keyPhase = phase(morph.current, 0.18, 0.62)
-    const screenPhase = phase(morph.current, 0.62, 0.86)
+    // go-go-gadget sequence: dial sinks, key rows ratchet down top-to-bottom
+    // (per-row stagger lives in Keys.jsx FxSink, 0.10-0.58), then the glass
+    // extends horizontally and finally vertically (FxScreen). Strictly
+    // sequential so each mechanical beat reads on its own.
+    const knobPhase = phase(morph.current, 0.0, 0.16)
+    const screenPhase = phase(morph.current, 0.5, 0.68)
 
     if (knob.current) {
-      knob.current.position.z = -knobPhase * 1.34
-      knob.current.scale.setScalar(1 - knobPhase * 0.04)
-      knob.current.rotation.z = knobPhase * -0.025
-    }
-    if (keys.current) {
-      keys.current.position.z = -keyPhase * 1.3
-      keys.current.scale.set(1 - keyPhase * 0.022, 1 - keyPhase * 0.018, 1)
-      keys.current.rotation.x = keyPhase * 0.018
+      // 1.6 fully clears the 1.36-tall dial below the seated glass (z ~0.84).
+      // The dial follows its phase through a damp: tight while sinking, loose
+      // on close so the big knob glides back up and settles after the glass.
+      knob.current.position.z = THREE.MathUtils.damp(
+        knob.current.position.z, -knobPhase * 1.6, fxOpen ? 18 : 5, frameTime,
+      )
+      const travel = -knob.current.position.z / 1.6
+      knob.current.scale.setScalar(1 - travel * 0.04)
+      knob.current.rotation.z = travel * -0.025
     }
     if (screen.current) screen.current.position.z = -screenPhase * 1.3
   })
@@ -70,9 +74,7 @@ export default function Machine() {
       >
         <Chassis />
       </AssemblyPart>
-      <group ref={keys}>
-        <Keys />
-      </group>
+      <Keys />
       <group ref={knob}>
         <AssemblyPart
           fromPosition={KNOB_FROM}

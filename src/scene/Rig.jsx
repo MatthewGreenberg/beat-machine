@@ -18,17 +18,22 @@ export default function Rig({ children }) {
   const group = useRef()
   const { pointer, camera } = useThree()
   const target = useRef(new THREE.Vector2())
+  const baseFov = useRef(0)
+  const prevMorph = useRef(0)
+  const shake = useRef(0)
 
   useLayoutEffect(() => {
+    baseFov.current = camera.fov
     if (!VIEW) return
     camera.position.set(...VIEW.camera)
     camera.fov = VIEW.fov
     camera.lookAt(0, 0, 0)
     camera.updateProjectionMatrix()
+    baseFov.current = VIEW.fov
     group.current.rotation.set(VIEW.rotX, VIEW.rotY, 0)
   }, [camera])
 
-  useFrame((_, dt) => {
+  useFrame((state, dt) => {
     if (!VIEW && !DEBUG) {
       const k = 1 - Math.exp(-3.5 * Math.min(dt, 0.1))
       target.current.lerp(pointer, k)
@@ -49,7 +54,29 @@ export default function Rig({ children }) {
     g.rotation.z = THREE.MathUtils.damp(g.rotation.z, -0.012 * mix, 12, frameTime)
     g.position.x = THREE.MathUtils.damp(g.position.x, baseX * (1 - mix), 12, frameTime)
     g.position.y = THREE.MathUtils.damp(g.position.y, mix * 0.08, 12, frameTime)
-    g.position.z = THREE.MathUtils.damp(g.position.z, mix * 0.85, 12, frameTime)
+    // A real dolly-in for the editor pose; slower damping than the rotations
+    // so the push reads as a camera glide, not part of the machine's snap.
+    const prevZ = g.position.z
+    g.position.z = THREE.MathUtils.damp(g.position.z, mix * 3.1, 7, frameTime)
+    // Post reads this: chromatic aberration rides the dolly speed, so the
+    // smear exists only while the camera is actually moving.
+    live.dollyVel = (g.position.z - prevZ) / frameTime
+
+    // Dolly-zoom punch: fov tightens as the glass strokes fire, so the push
+    // compresses the frame instead of just enlarging it.
+    const fovTarget = baseFov.current - phase(live.fxMorph, 0.45, 0.95) * 3.5
+    camera.fov = THREE.MathUtils.damp(camera.fov, fovTarget, 6, frameTime)
+    camera.updateProjectionMatrix()
+
+    // One decaying kick when the vertical stroke latches home.
+    if (live.fxMorph > 0.92 && prevMorph.current <= 0.92) shake.current = 1
+    prevMorph.current = live.fxMorph
+    shake.current *= Math.exp(-9 * frameTime)
+    if (shake.current > 0.004) {
+      const s = Math.sin(state.clock.elapsedTime * 55) * shake.current
+      g.position.y += s * 0.05
+      g.rotation.z += s * 0.005
+    }
   })
 
   return (
