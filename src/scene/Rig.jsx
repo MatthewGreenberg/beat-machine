@@ -53,10 +53,10 @@ export default function Rig({ children }) {
   useFrame((state, dt) => {
     if (!VIEW && !DEBUG) {
       if (COARSE) {
-        // Touch has no hover pointer — tracking it lurches the machine toward
-        // the last tap and sticks. A slow idle sway keeps the light moving.
-        target.current.x = Math.sin(state.clock.elapsedTime * 0.22) * 0.3
-        target.current.y = Math.sin(state.clock.elapsedTime * 0.15) * 0.15
+        // Touch has no hover pointer to track. Hold a fixed pose: straight-on,
+        // no yaw, leaned back a touch (rotX = -y * 0.26 ≈ -8°).
+        target.current.x = 0
+        target.current.y = 0.55
       } else {
         const t = Math.min(dt, 0.1)
         // x tracks faster than y so side-to-side yaw feels snappy without

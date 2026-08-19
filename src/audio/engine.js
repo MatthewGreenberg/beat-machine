@@ -109,6 +109,10 @@ if (typeof document !== 'undefined') {
 
 export function getContext() {
   if (!ctx) {
+    // iOS: WebAudio defaults to the "ambient" session, which the ringer/silent
+    // switch mutes. "playback" opts into media-app behaviour (audible on
+    // silent, like YouTube). Safari 16.4+; harmless no-op elsewhere.
+    try { navigator.audioSession.type = 'playback' } catch { /* unsupported */ }
     ctx = new (window.AudioContext || window.webkitAudioContext)()
     comp = ctx.createDynamicsCompressor()
     comp.threshold.value = -12

@@ -10,8 +10,9 @@ active it dollies the camera back so `BODY_W/2 + 0.8` fits the horizontal
 fov (clamped at the desktop z=46, so wide aspects are pixel-identical).
 The 0.8 margin also covers the FX editor pose (+2.2 group dolly, −2° fov
 punch) at iPhone aspect — don't shrink it below ~0.65. On COARSE the
-pointer parallax is replaced by a slow sine idle sway (touch has no hover
-pointer; tracking it lurches to the last tap and sticks), and
+pointer parallax is replaced by a fixed pose — straight-on, zero yaw,
+leaned back ~8° (touch has no hover pointer; tracking it lurches to the
+last tap and sticks) — and
 `makeReadoutCanvas` in FxScreen halves to 640×960 (the per-drag-frame
 texture re-upload stutters mobile GPUs; all px in the file scale by
 `k = canvas.width / 1024` so this is safe). `onPointerOver` handlers with
