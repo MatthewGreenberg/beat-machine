@@ -365,7 +365,14 @@ export default function FxPanel() {
         className="fx-toggle"
         aria-expanded={fxOpen}
         aria-label={fxOpen ? 'Close effects' : 'Effects'}
-        onClick={() => { liveRef.current.press = 1; actions.toggleFx() }}
+        // A mouse click leaves the button focused, so the next Space press
+        // re-activates it instead of play/pause. Blur on pointer clicks only
+        // (e.detail is 0 for keyboard activation, which keeps its focus).
+        onClick={(e) => {
+          if (e.detail) e.currentTarget.blur()
+          liveRef.current.press = 1
+          actions.toggleFx()
+        }}
         onPointerEnter={() => { liveRef.current.closeHot = 1 }}
         onPointerLeave={() => { liveRef.current.closeHot = 0 }}
         style={{ width: ORB, height: ORB, transform: 'translate(-50%, -50%)' }}

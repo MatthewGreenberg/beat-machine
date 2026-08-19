@@ -9,7 +9,9 @@ import Lighting from './scene/Lighting'
 import Machine from './scene/Machine'
 import Post from './scene/Post'
 import TempoMatrix from './scene/TempoMatrix'
+import TutorialAnchor from './scene/TutorialAnchor'
 import Hud from './ui/Hud'
+import Tutorial from './ui/Tutorial'
 import { DEBUG, NO_POST } from './scene/views'
 import {
   COARSE,
@@ -101,11 +103,13 @@ export default function App() {
               <TempoMatrix />
               <Lighting />
               <Machine />
+              <TutorialAnchor />
             </Rig>
             <Post />
           </Suspense>
         </Canvas>
         <Hud />
+        <Tutorial />
       </div>
     </QualityProvider>
   )

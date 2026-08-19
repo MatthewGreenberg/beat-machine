@@ -133,3 +133,88 @@ body {
   .fx { animation: none; transition: none; }
   .fx-row, .fx-toggle { transition: none; }
 }
+
+/* ---- First-visit tutorial --------------------------------------------------
+   The overlay never intercepts pointers (only the card does), so every step's
+   target stays directly interactive; TutorialAnchor moves .tut-hole per frame. */
+
+.tut {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 500ms ease;
+}
+.tut-on { opacity: 1; visibility: visible; }
+
+/* The spotlight: a transparent rounded rect whose giant blurred box-shadow is
+   the dim — the blur feathers the cutout edge so it reads as stage light, not
+   a stencil. The inner shadow is an accent glow keyed to the current finish. */
+.tut-hole {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 16px;
+  box-shadow:
+    0 0 26px 3px color-mix(in srgb, var(--accent, #cfc9be) 38%, transparent),
+    0 0 52px 200vmax rgba(3, 3, 3, 0.64);
+}
+
+/* Viewfinder corner brackets, breathing slowly in the finish accent. */
+.tut-hole::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  --b: linear-gradient(var(--accent, #cfc9be), var(--accent, #cfc9be));
+  background:
+    var(--b) left 0 top 0 / 15px 2px,
+    var(--b) left 0 top 0 / 2px 15px,
+    var(--b) right 0 top 0 / 15px 2px,
+    var(--b) right 0 top 0 / 2px 15px,
+    var(--b) left 0 bottom 0 / 15px 2px,
+    var(--b) left 0 bottom 0 / 2px 15px,
+    var(--b) right 0 bottom 0 / 15px 2px,
+    var(--b) right 0 bottom 0 / 2px 15px;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 0 6px var(--accent, #cfc9be));
+  animation: tut-breathe 2.6s ease-in-out infinite;
+}
+@keyframes tut-breathe {
+  0%, 100% { opacity: 0.95; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(1.018); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tut-hole::before { animation: none; }
+}
+
+.tut-card {
+  position: absolute;
+  left: 50%;
+  top: max(16px, env(safe-area-inset-top, 0px));
+  transform: translateX(-50%);
+  width: min(360px, calc(100vw - 28px));
+  padding: 13px 15px;
+  background: rgba(11, 11, 10, 0.94);
+  border: 1px solid #2b2925;
+  border-radius: 10px;
+  pointer-events: auto;
+  touch-action: manipulation;
+}
+.tut-count { font-size: 9px; color: #57534c; margin-bottom: 7px; }
+.tut-text { color: #b9b4ab; line-height: 1.6; letter-spacing: 0.09em; }
+.tut-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 11px; }
+.tut-actions button {
+  font: inherit;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #35322c;
+  background: transparent;
+  color: #8a857c;
+  cursor: pointer;
+}
+.tut-next { background: #1c1b18; color: #cfc9be; }
+.tut-actions button:hover { border-color: #57534c; color: #ddd7cb; }
