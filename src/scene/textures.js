@@ -14,6 +14,80 @@ export function canvas(size = 512) {
   return [c, c.getContext('2d')]
 }
 
+// Safari has never shipped CanvasRenderingContext2D.filter (WebKit bug
+// 198416): every `g.filter = 'blur(…)'` silently no-ops there and the soft
+// grime/wear blotches bake as hard-edged ellipses. Detect by actually
+// blurring a pixel — property sniffing can't tell "parsed" from "works".
+export const CANVAS_FILTER_OK = (() => {
+  if (typeof document === 'undefined') return true
+  const c = document.createElement('canvas')
+  c.width = c.height = 8
+  const g = c.getContext('2d')
+  g.filter = 'blur(2px)'
+  g.fillRect(3, 3, 2, 2)
+  return g.getImageData(1, 4, 1, 1).data[3] > 0
+})()
+
+// Approximate gaussian: progressive half-res downscale then upscale — each
+// bilinear resample is a small blur, and the chain compounds. All drawImage,
+// so it stays GPU-side; a JS pixel-loop blur here cost ~2s of Safari startup
+// across the ~160 texture bakes. Bake-time only, fallback-path only.
+function approxBlurCanvas(c, g, radius) {
+  const steps = Math.max(1, Math.round(Math.log2(Math.max(2, radius))))
+  const chain = []
+  let src = c
+  let w = c.width
+  let h = c.height
+  for (let i = 0; i < steps; i++) {
+    w = Math.max(1, Math.ceil(w / 2))
+    h = Math.max(1, Math.ceil(h / 2))
+    const t = document.createElement('canvas')
+    t.width = w
+    t.height = h
+    const tg = t.getContext('2d')
+    tg.imageSmoothingQuality = 'high'
+    tg.drawImage(src, 0, 0, w, h)
+    chain.push(t)
+    src = t
+  }
+  // walk back up 2x per step — one giant upscale shows bilinear diamonds
+  for (let i = chain.length - 2; i >= 0; i--) {
+    const t = chain[i]
+    const tg = t.getContext('2d')
+    tg.save()
+    tg.globalCompositeOperation = 'copy'
+    tg.imageSmoothingQuality = 'high'
+    tg.drawImage(src, 0, 0, t.width, t.height)
+    tg.restore()
+    src = t
+  }
+  g.save()
+  g.globalCompositeOperation = 'copy'
+  g.imageSmoothingQuality = 'high'
+  g.drawImage(src, 0, 0, c.width, c.height)
+  g.restore()
+}
+
+// Draw-with-blur: native ctx.filter where it works, temp-layer + box blur
+// where it doesn't. The callback gets the context to draw into and must set
+// its own styles; the layer composites back through g's current
+// globalAlpha/composite op, so destination-out erasure etc. still works.
+export function withBlur(g, radius, draw) {
+  if (CANVAS_FILTER_OK) {
+    g.filter = `blur(${radius}px)`
+    draw(g)
+    g.filter = 'none'
+    return
+  }
+  const t = document.createElement('canvas')
+  t.width = g.canvas.width
+  t.height = g.canvas.height
+  const tg = t.getContext('2d')
+  draw(tg)
+  approxBlurCanvas(t, tg, radius)
+  g.drawImage(t, 0, 0)
+}
+
 export function toTexture(c, { srgb = false, repeat = 1, aniso = 8 } = {}) {
   const t = new THREE.CanvasTexture(c)
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
@@ -43,20 +117,20 @@ export function blotchCanvas(size = 512, count = 40, blur = 26, dark = 0.5) {
   const [c, g] = canvas(size)
   g.fillStyle = '#808080'
   g.fillRect(0, 0, size, size)
-  g.filter = `blur(${blur}px)`
-  for (let i = 0; i < count; i++) {
-    const x = Math.random() * size
-    const y = Math.random() * size
-    const r = size * (0.04 + Math.random() * 0.16)
-    const light = Math.random() > 0.5
-    g.fillStyle = light
-      ? `rgba(255,255,255,${0.10 + Math.random() * 0.18})`
-      : `rgba(0,0,0,${dark * (0.10 + Math.random() * 0.2)})`
-    g.beginPath()
-    g.ellipse(x, y, r, r * (0.5 + Math.random()), Math.random() * Math.PI, 0, Math.PI * 2)
-    g.fill()
-  }
-  g.filter = 'none'
+  withBlur(g, blur, (bg) => {
+    for (let i = 0; i < count; i++) {
+      const x = Math.random() * size
+      const y = Math.random() * size
+      const r = size * (0.04 + Math.random() * 0.16)
+      const light = Math.random() > 0.5
+      bg.fillStyle = light
+        ? `rgba(255,255,255,${0.10 + Math.random() * 0.18})`
+        : `rgba(0,0,0,${dark * (0.10 + Math.random() * 0.2)})`
+      bg.beginPath()
+      bg.ellipse(x, y, r, r * (0.5 + Math.random()), Math.random() * Math.PI, 0, Math.PI * 2)
+      bg.fill()
+    }
+  })
   return c
 }
 
@@ -67,18 +141,22 @@ export function rustCanvas(size = 512, patches = 26, dings = 70, strength = 1) {
   const k = Math.max(0, strength)
   g.fillStyle = '#808080'
   g.fillRect(0, 0, size, size)
-  for (let i = 0; i < patches; i++) {
-    const x = Math.random() * size
-    const y = Math.random() * size
-    const r = size * (0.02 + Math.random() * 0.08)
-    // soft orange-brown bloom
-    g.filter = 'blur(6px)'
-    g.fillStyle = `rgba(${120 + Math.random() * 60 | 0},${55 + Math.random() * 30 | 0},${20 + Math.random() * 15 | 0},${(0.25 + Math.random() * 0.4) * k})`
-    g.beginPath()
-    g.ellipse(x, y, r, r * (0.4 + Math.random()), Math.random() * Math.PI, 0, Math.PI * 2)
-    g.fill()
-    // crusty speckle inside the bloom
-    g.filter = 'none'
+  // all blooms in one blurred layer (one blur, not one per patch), then the
+  // crusty speckle over the top
+  const spots = Array.from({ length: patches }, () => ({
+    x: Math.random() * size,
+    y: Math.random() * size,
+    r: size * (0.02 + Math.random() * 0.08),
+  }))
+  withBlur(g, 6, (bg) => {
+    for (const { x, y, r } of spots) {
+      bg.fillStyle = `rgba(${120 + Math.random() * 60 | 0},${55 + Math.random() * 30 | 0},${20 + Math.random() * 15 | 0},${(0.25 + Math.random() * 0.4) * k})`
+      bg.beginPath()
+      bg.ellipse(x, y, r, r * (0.4 + Math.random()), Math.random() * Math.PI, 0, Math.PI * 2)
+      bg.fill()
+    }
+  })
+  for (const { x, y, r } of spots) {
     for (let j = 0; j < 24; j++) {
       const a = Math.random() * Math.PI * 2
       const d = Math.random() * r

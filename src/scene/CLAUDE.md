@@ -1,5 +1,17 @@
 # src/scene
 
+## Canvas blur — never set ctx.filter directly
+
+Safari has never shipped `CanvasRenderingContext2D.filter` (WebKit bug
+198416): `g.filter = 'blur(…)'` silently no-ops and every soft grime/wear
+blotch bakes as a hard-edged ellipse — that exact bug shipped once. All
+blurred drawing goes through `withBlur(g, radius, draw)` from textures.js:
+native filter where it works, a temp layer + downscale/upscale pyramid
+where it doesn't (drawImage-only — a JS pixel-loop blur here cost ~2s of
+Safari startup). The callback must set its own styles; the layer composites
+back through g's current globalAlpha/composite op. Repro Safari rendering
+with `node scripts/shot.mjs front out.png --browser=webkit`.
+
 ## Mobile / touch
 
 `quality.js` exports the two shared touch signals: `COARSE` (`(pointer:

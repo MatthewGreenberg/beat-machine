@@ -1,6 +1,8 @@
 // WebAudio drum synths + lookahead scheduler.
 // ponytail: no Tone.js — 4 synth voices and a lookahead loop are ~150 lines of native WebAudio.
 
+import { COARSE } from '../scene/quality'
+
 let ctx = null
 let master = null
 let sfxBus = null
@@ -105,14 +107,26 @@ if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume()
   })
+  // Keys act on pointerdown, but WebKit only counts touchend/click as the
+  // gesture that unlocks audio — without this the first tap arms the transport
+  // against a still-suspended clock and nothing is heard until the next tap.
+  // Capture phase so no handler in between can ever get in the way.
+  const unlock = () => { if (ctx && ctx.state !== 'running') ctx.resume() }
+  const opts = { capture: true, passive: true }
+  document.addEventListener('touchend', unlock, opts)
+  document.addEventListener('pointerup', unlock, opts)
 }
 
 export function getContext() {
   if (!ctx) {
     // iOS: WebAudio defaults to the "ambient" session, which the ringer/silent
     // switch mutes. "playback" opts into media-app behaviour (audible on
-    // silent, like YouTube). Safari 16.4+; harmless no-op elsewhere.
-    try { navigator.audioSession.type = 'playback' } catch { /* unsupported */ }
+    // silent, like YouTube). Touch devices only: desktop Safari also exposes
+    // audioSession, has no silent switch to work around, and re-typing the
+    // session there risks muting the context instead.
+    if (COARSE) {
+      try { navigator.audioSession.type = 'playback' } catch { /* unsupported */ }
+    }
     ctx = new (window.AudioContext || window.webkitAudioContext)()
     comp = ctx.createDynamicsCompressor()
     comp.threshold.value = -12
@@ -210,6 +224,23 @@ export function resume() {
     src.start()
   }
   return c
+}
+
+// iOS: the context can stay 'suspended' for a beat after the unlocking tap, so
+// currentTime is frozen and anything scheduled against it never fires. Callers
+// that need a live clock wait here instead of reading a stale currentTime.
+export function whenRunning(cb) {
+  const c = resume()
+  if (c.state === 'running') return cb(c)
+  let fired = false
+  const run = () => {
+    if (fired || c.state !== 'running') return
+    fired = true
+    c.removeEventListener('statechange', run)
+    cb(c)
+  }
+  c.addEventListener('statechange', run)
+  c.resume().then(run, () => {})
 }
 
 // Mechanical foley for the FX-panel transformation. Everything rides the
@@ -503,12 +534,14 @@ export function createTransport({ getPattern, getBpm, getSwing, onStep }) {
   return {
     start() {
       if (running) return
-      const c = resume()
       running = true
       step = 0
-      nextTime = c.currentTime + 0.06
-      schedule()
-      timer = setInterval(schedule, LOOKAHEAD_MS)
+      whenRunning((c) => {
+        if (!running || timer) return
+        nextTime = c.currentTime + 0.06
+        schedule()
+        timer = setInterval(schedule, LOOKAHEAD_MS)
+      })
     },
     stop() {
       running = false

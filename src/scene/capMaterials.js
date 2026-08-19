@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import { canvas, toTexture, memo, blotchCanvas, scratchCanvas, noiseCanvas } from './textures'
+import { canvas, toTexture, memo, blotchCanvas, scratchCanvas, noiseCanvas, withBlur } from './textures'
 import { CAP_UV } from './keycapGeometry'
 import { COARSE } from './quality'
 
@@ -58,11 +58,11 @@ function shadeWall(g, wall, light, edge) {
   const [mc, mg] = canvas(S)
   mg.fillStyle = light ? '#6b5f4c' : '#6a666e'
   mg.fillRect(0, 0, S, S)
-  mg.filter = `blur(${Math.max(2, Math.round(S * 0.008))}px)`
-  mg.fillStyle = '#ffffff'
-  roundRect(mg, wall.x, wall.y, wall.w, wall.h, wall.r)
-  mg.fill()
-  mg.filter = 'none'
+  withBlur(mg, Math.max(2, Math.round(S * 0.008)), (bg) => {
+    bg.fillStyle = '#ffffff'
+    roundRect(bg, wall.x, wall.y, wall.w, wall.h, wall.r)
+    bg.fill()
+  })
 
   g.save()
   g.globalCompositeOperation = 'multiply'
@@ -96,58 +96,55 @@ function drawWear(g, o, rand) {
   // ride the rim every day, so it never yellows and never holds grime. That
   // lighter albedo is the other half of why the reference's rim out-reads its
   // own face — geometry alone only buys ~25% and the reference is at ~48%.
-  g.save()
-  g.filter = `blur(${Math.max(2, Math.round(S * 0.01))}px)`
   const cham = (CAP_UV.wall + CAP_UV.face) / 2
-  g.strokeStyle = light
-    ? `rgba(255,252,243,${0.34 + edge * 0.22})`
-    : `rgba(158,160,168,${0.16 + edge * 0.12})`
-  g.lineWidth = (CAP_UV.face - CAP_UV.wall) * S * 1.15
-  roundRect(g, cham * S, cham * S, S * (1 - cham * 2), S * (1 - cham * 2), S * 0.11)
-  g.stroke()
-  g.restore()
+  withBlur(g, Math.max(2, Math.round(S * 0.01)), (bg) => {
+    bg.strokeStyle = light
+      ? `rgba(255,252,243,${0.34 + edge * 0.22})`
+      : `rgba(158,160,168,${0.16 + edge * 0.12})`
+    bg.lineWidth = (CAP_UV.face - CAP_UV.wall) * S * 1.15
+    roundRect(bg, cham * S, cham * S, S * (1 - cham * 2), S * (1 - cham * 2), S * 0.11)
+    bg.stroke()
+  })
 
   // dirt collects in the gutter right at the rim crease, and packs into the
   // corners. It sits just *inside* the face rim so it never touches the chamfer.
-  g.save()
-  g.filter = `blur(${Math.round(S * 0.014)}px)`
-  g.strokeStyle = light ? `rgba(52,41,29,${0.15 + edge * 0.13})` : `rgba(14,13,14,${0.15 + edge * 0.13})`
-  g.lineWidth = S * 0.022
-  roundRect(g, face.x + S * 0.016, face.y + S * 0.016, face.w - S * 0.032, face.h - S * 0.032, face.r)
-  g.stroke()
-  const corners = [[face.x, face.y], [face.x + face.w, face.y], [face.x, face.y + face.h], [face.x + face.w, face.y + face.h]]
-  for (const [x, y] of corners) {
-    const a = 0.1 + rand() * 0.12
-    g.fillStyle = light ? `rgba(48,37,25,${a})` : `rgba(10,10,12,${a})`
-    g.beginPath()
-    g.ellipse(x, y, S * (0.055 + rand() * 0.04), S * (0.055 + rand() * 0.04), 0, 0, 6.29)
-    g.fill()
-  }
-  g.restore()
+  withBlur(g, Math.round(S * 0.014), (bg) => {
+    bg.strokeStyle = light ? `rgba(52,41,29,${0.15 + edge * 0.13})` : `rgba(14,13,14,${0.15 + edge * 0.13})`
+    bg.lineWidth = S * 0.022
+    roundRect(bg, face.x + S * 0.016, face.y + S * 0.016, face.w - S * 0.032, face.h - S * 0.032, face.r)
+    bg.stroke()
+    const corners = [[face.x, face.y], [face.x + face.w, face.y], [face.x, face.y + face.h], [face.x + face.w, face.y + face.h]]
+    for (const [x, y] of corners) {
+      const a = 0.1 + rand() * 0.12
+      bg.fillStyle = light ? `rgba(48,37,25,${a})` : `rgba(10,10,12,${a})`
+      bg.beginPath()
+      bg.ellipse(x, y, S * (0.055 + rand() * 0.04), S * (0.055 + rand() * 0.04), 0, 0, 6.29)
+      bg.fill()
+    }
+  })
 
   // grime blotches — uneven handling, not a uniform tint
-  g.save()
-  g.filter = `blur(${Math.round(S * 0.034)}px)`
-  for (let i = 0; i < 26; i++) {
-    const x = rand() * S
-    const y = rand() * S
-    // The centre gets wiped clean and grime survives toward the rim — but it
-    // stops AT the rim crease. Past that is the burnished chamfer, and letting
-    // blotches run out over it was quietly re-darkening the band that shadeWall
-    // and the polish stroke had just been fixed to leave alone.
-    const away = Math.max(Math.abs(x - cx), Math.abs(y - cy)) / (S / 2)
-    const rimA = 1 - 2 * inset
-    const fall = away > rimA ? Math.max(0.1, 1 - (away - rimA) / (1 - rimA)) : 1
-    g.globalAlpha = grime * (0.08 + 0.92 * Math.min(1, (away / rimA) * 1.35) ** 1.7) * fall
-    const r = S * (0.03 + rand() * 0.13)
-    g.fillStyle = rand() > 0.45
-      ? (light ? '#4c4030' : '#191a1e')
-      : (light ? '#f6f2e8' : '#8e9098')
-    g.beginPath()
-    g.ellipse(x, y, r, r * (0.6 + rand()), rand() * 3.14, 0, 6.29)
-    g.fill()
-  }
-  g.restore()
+  withBlur(g, Math.round(S * 0.034), (bg) => {
+    for (let i = 0; i < 26; i++) {
+      const x = rand() * S
+      const y = rand() * S
+      // The centre gets wiped clean and grime survives toward the rim — but it
+      // stops AT the rim crease. Past that is the burnished chamfer, and letting
+      // blotches run out over it was quietly re-darkening the band that shadeWall
+      // and the polish stroke had just been fixed to leave alone.
+      const away = Math.max(Math.abs(x - cx), Math.abs(y - cy)) / (S / 2)
+      const rimA = 1 - 2 * inset
+      const fall = away > rimA ? Math.max(0.1, 1 - (away - rimA) / (1 - rimA)) : 1
+      bg.globalAlpha = grime * (0.08 + 0.92 * Math.min(1, (away / rimA) * 1.35) ** 1.7) * fall
+      const r = S * (0.03 + rand() * 0.13)
+      bg.fillStyle = rand() > 0.45
+        ? (light ? '#4c4030' : '#191a1e')
+        : (light ? '#f6f2e8' : '#8e9098')
+      bg.beginPath()
+      bg.ellipse(x, y, r, r * (0.6 + rand()), rand() * 3.14, 0, 6.29)
+      bg.fill()
+    }
+  })
 
   // hairline scuffs, biased to the wipe direction of a thumb
   for (let i = 0; i < 46; i++) {
@@ -196,20 +193,19 @@ function drawAging(g, base, amount, rand) {
   // near-neutral plastic reads as *yellowed* rather than just orange
   const hsl = new THREE.Color(base).getHSL({})
   const warmK = hsl.s > 0.22 ? 0.25 : 1
-  g.save()
-  g.filter = `blur(${Math.round(S * 0.13)}px)`
-  for (let i = 0; i < 9; i++) {
-    const x = rand() * S
-    const y = rand() * S
-    const r = S * (0.16 + rand() * 0.3)
-    g.fillStyle = rand() > 0.4
-      ? `rgba(${198 + rand() * 24 | 0},${176 + rand() * 22 | 0},130,${(0.02 + rand() * 0.035) * amount * warmK})`
-      : `rgba(230,232,238,${(0.02 + rand() * 0.04) * amount})`
-    g.beginPath()
-    g.ellipse(x, y, r, r * (0.7 + rand() * 0.7), rand() * 3.14, 0, 6.29)
-    g.fill()
-  }
-  g.restore()
+  withBlur(g, Math.round(S * 0.13), (bg) => {
+    for (let i = 0; i < 9; i++) {
+      const x = rand() * S
+      const y = rand() * S
+      const r = S * (0.16 + rand() * 0.3)
+      bg.fillStyle = rand() > 0.4
+        ? `rgba(${198 + rand() * 24 | 0},${176 + rand() * 22 | 0},130,${(0.02 + rand() * 0.035) * amount * warmK})`
+        : `rgba(230,232,238,${(0.02 + rand() * 0.04) * amount})`
+      bg.beginPath()
+      bg.ellipse(x, y, r, r * (0.7 + rand() * 0.7), rand() * 3.14, 0, 6.29)
+      bg.fill()
+    }
+  })
   // one edge of the cap always cops more sun than the other
   const g2 = g.createLinearGradient(0, 0, S * 0.7, S)
   g2.addColorStop(0, `rgba(210,186,134,${0.045 * amount * warmK})`)
@@ -239,15 +235,15 @@ function drawLegend(g, legend, opts, rand) {
   // ink breakup — speckle the print away, plus a couple of wipe streaks
   const wear = opts.inkWear ?? 0.45
   lg.globalCompositeOperation = 'destination-out'
-  lg.filter = 'blur(1.4px)'
-  for (let i = 0; i < 150 * wear; i++) {
-    const r = S * (0.004 + rand() * 0.016)
-    lg.fillStyle = `rgba(0,0,0,${0.25 + rand() * 0.6})`
-    lg.beginPath()
-    lg.ellipse(rand() * S, rand() * S, r, r * (0.5 + rand()), rand() * 3.14, 0, 6.29)
-    lg.fill()
-  }
-  lg.filter = 'none'
+  withBlur(lg, 1.4, (bg) => {
+    for (let i = 0; i < 150 * wear; i++) {
+      const r = S * (0.004 + rand() * 0.016)
+      bg.fillStyle = `rgba(0,0,0,${0.25 + rand() * 0.6})`
+      bg.beginPath()
+      bg.ellipse(rand() * S, rand() * S, r, r * (0.5 + rand()), rand() * 3.14, 0, 6.29)
+      bg.fill()
+    }
+  })
   for (let i = 0; i < 3; i++) {
     const y = rand() * S
     lg.strokeStyle = `rgba(0,0,0,${0.2 + rand() * 0.45})`
@@ -334,21 +330,20 @@ export const capRoughness = (finish = 'abs') =>
       // it is the edge fingernails and shirt cuffs burnish every day, and it is
       // why the reference's rim reads as a hard blown specular stripe rather
       // than a diffuse band. Stroke it dark (low roughness).
-      g.save()
-      g.filter = `blur(${Math.max(2, Math.round(S * 0.008))}px)`
       const cham = (CAP_UV.wall + CAP_UV.face) / 2
-      g.strokeStyle = 'rgba(0,0,0,0.62)'
-      g.lineWidth = (CAP_UV.face - CAP_UV.wall) * S * 1.05
-      roundRect(g, cham * S, cham * S, S * (1 - cham * 2), S * (1 - cham * 2), S * 0.11)
-      g.stroke()
-      // the added roughness belongs out on the wall, which is never touched and
-      // still carries its mould texture and grime
-      g.strokeStyle = 'rgba(255,255,255,0.55)'
-      g.lineWidth = CAP_UV.wall * S * 1.4
-      roundRect(g, CAP_UV.wall * S * 0.4, CAP_UV.wall * S * 0.4,
-        S * (1 - CAP_UV.wall * 0.8), S * (1 - CAP_UV.wall * 0.8), S * 0.09)
-      g.stroke()
-      g.restore()
+      withBlur(g, Math.max(2, Math.round(S * 0.008)), (bg) => {
+        bg.strokeStyle = 'rgba(0,0,0,0.62)'
+        bg.lineWidth = (CAP_UV.face - CAP_UV.wall) * S * 1.05
+        roundRect(bg, cham * S, cham * S, S * (1 - cham * 2), S * (1 - cham * 2), S * 0.11)
+        bg.stroke()
+        // the added roughness belongs out on the wall, which is never touched and
+        // still carries its mould texture and grime
+        bg.strokeStyle = 'rgba(255,255,255,0.55)'
+        bg.lineWidth = CAP_UV.wall * S * 1.4
+        roundRect(bg, CAP_UV.wall * S * 0.4, CAP_UV.wall * S * 0.4,
+          S * (1 - CAP_UV.wall * 0.8), S * (1 - CAP_UV.wall * 0.8), S * 0.09)
+        bg.stroke()
+      })
     }
     return toTexture(c)
   })
@@ -361,9 +356,7 @@ export const capNormal = (finish = 'abs') =>
     // (the old behaviour) turns every cap into a marbled pebble.
     const [hc, hg] = canvas(S)
     hg.drawImage(noiseCanvas(S, 1, rubber ? 0.5 : 0.3), 0, 0)
-    hg.filter = `blur(${rubber ? 0.7 : 1.3}px)`
-    hg.drawImage(hc, 0, 0)
-    hg.filter = 'none'
+    withBlur(hg, rubber ? 0.7 : 1.3, (bg) => bg.drawImage(hc, 0, 0))
     hg.globalAlpha = 0.28
     hg.drawImage(scratchCanvas(S, 60, 0.4), 0, 0)
     hg.globalAlpha = 1
