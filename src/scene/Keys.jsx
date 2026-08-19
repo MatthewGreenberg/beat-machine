@@ -4,9 +4,10 @@ import * as THREE from 'three'
 import { useControls } from 'leva'
 import Keycap from './Keycap'
 import { capColorMap } from './capMaterials'
+import { canvas as makeCanvas, memo, toTexture } from './textures'
 import { useStore, actions, live, TRACKS } from '../state/store'
 import {
-  PITCH, keyX, keyY, PLATE_Z, TRACK_KEYS, SWING_KEY,
+  CAP, PITCH, keyX, keyY, PLATE_Z, TRACK_KEYS, SWING_KEY,
   STEP_COLS, stepPos, PLAY_KEY, CLEAR_KEY,
 } from './layout'
 import { FINISHES, getFinish } from '../finishes'
@@ -78,69 +79,118 @@ const stepMap = (finish, on, i) =>
     edge: 0.5,
   })
 
-const trackGlyphs = {
-  kick: (g, S, ink) => glyph(g, S, '●', 190, ink),
-  snare: (g, S, ink) => glyph(g, S, '≡', 200, ink),
-  hat: (g, S, ink) => glyph(g, S, '✕', 170, ink),
-  clap: (g, S, ink) => glyph(g, S, '◈', 180, ink),
-}
+const TAU = Math.PI * 2
 
-function glyph(g, S, ch, size, ink = 'rgba(226,222,214,0.72)') {
+// Drum iconography, not typography: a kick head with its beater spot, the
+// same head strung with snare wires, two cymbals on a stand, a clap burst.
+// '≡' and '◈' told you nothing about which drum you were about to program.
+// GLYPH_SCALE shrinks the whole family — stroke weight included, so they
+// stay marks rather than becoming chunky miniatures. GlowGlyph's group
+// carries the same factor.
+const GLYPH_SCALE = 0.48
+
+function pen(g, S, ink) {
+  g.strokeStyle = ink
   g.fillStyle = ink
-  g.font = `300 ${size}px "Helvetica Neue", Arial`
-  g.textAlign = 'center'
-  g.textBaseline = 'middle'
-  g.fillText(ch, S / 2, S * 0.52)
+  g.lineWidth = S * 0.05 * GLYPH_SCALE
+  g.lineCap = 'round'
+  g.lineJoin = 'round'
+  return [S / 2, S * 0.52, S * 0.3 * GLYPH_SCALE] // cx, cy, r
 }
 
-function GlowGlyph({ type, color, active = false }) {
-  const material = (
-    <meshBasicMaterial
-      color={color}
-      transparent
-      opacity={active ? 0.78 : 0.56}
-      depthWrite={false}
-      toneMapped={false}
-    />
-  )
+// wire chords across a drum head, at fractions of the radius
+const WIRES = [-0.42, 0, 0.42]
+const wireHalf = (r, t) => Math.sqrt(Math.max(0, 1 - t * t)) * r * 0.92
 
-  const bar = (key, position, scale, rotation = 0) => (
-    <mesh key={key} position={position} rotation={[0, 0, rotation]}>
-      <boxGeometry args={scale} />
-      {material}
+const trackGlyphs = {
+  kick: (g, S, ink) => {
+    const [cx, cy, r] = pen(g, S, ink)
+    g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke()
+    g.beginPath(); g.arc(cx, cy, r * 0.34, 0, TAU); g.fill()
+  },
+  snare: (g, S, ink) => {
+    const [cx, cy, r] = pen(g, S, ink)
+    g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke()
+    for (const t of WIRES) {
+      const dx = wireHalf(r, t)
+      g.beginPath(); g.moveTo(cx - dx, cy + r * t); g.lineTo(cx + dx, cy + r * t); g.stroke()
+    }
+  },
+  hat: (g, S, ink) => {
+    const [cx, cy, r] = pen(g, S, ink)
+    // canvas y runs down: dir flips the open side so the top cymbal points up
+    // and the bottom one points down, the way a closed hi-hat sits.
+    for (const [apex, dir] of [[-0.62, 1], [0.42, -1]]) {
+      g.beginPath()
+      g.moveTo(cx - r * 1.1, cy + r * (apex + dir * 0.32))
+      g.lineTo(cx, cy + r * apex)
+      g.lineTo(cx + r * 1.1, cy + r * (apex + dir * 0.32))
+      g.stroke()
+    }
+    g.beginPath(); g.moveTo(cx, cy + r * 0.42); g.lineTo(cx, cy + r * 1.05); g.stroke()
+  },
+  // swung eighths: the grid loosened into two waves
+  swing: (g, S, ink) => {
+    const [cx, cy, r] = pen(g, S, ink)
+    for (const dy of [-0.52, 0.52]) {
+      g.beginPath()
+      for (let i = 0; i <= 24; i++) {
+        const u = i / 24
+        const px = cx + (u - 0.5) * r * 2.2
+        const py = cy + r * dy + Math.sin(u * TAU) * r * 0.3
+        i === 0 ? g.moveTo(px, py) : g.lineTo(px, py)
+      }
+      g.stroke()
+    }
+  },
+  clap: (g, S, ink) => {
+    const [cx, cy, r] = pen(g, S, ink)
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + TAU / 16
+      const r1 = r * (i % 2 === 0 ? 1.15 : 0.78)
+      g.beginPath()
+      g.moveTo(cx + Math.cos(a) * r * 0.34, cy + Math.sin(a) * r * 0.34)
+      g.lineTo(cx + Math.cos(a) * r1, cy + Math.sin(a) * r1)
+      g.stroke()
+    }
+  },
+}
+
+// The emissive twin is the SAME draw call on a transparent canvas, laid over
+// the cap as a plane. It used to be hand-built geometry in its own coordinate
+// system, which meant every glyph edit silently drifted the glow off the
+// print — visible on the two skins that light it (glass, plasma). Cap UVs map
+// the full canvas across CAP local units, so a CAP-sized plane registers
+// exactly, by construction.
+// Baked white and tinted by the material, so all skins share one texture
+// per shape rather than one per shape-and-colour.
+const glyphTexture = (type) => memo(`glyphglow:${type}`, () => {
+  const [c, g] = makeCanvas(512)
+  trackGlyphs[type](g, 512, '#fff')
+  return toTexture(c, { srgb: true })
+})
+
+// Cobalt and violet are the two skins that light their glyphs, and they are
+// also the two where the cap TINT can't carry the selection — cobalt's caps
+// are transmissive, so modifierActive washes out through the glass, and both
+// sit dark enough that a lightness jump disappears. So the glow does the
+// signalling: a lit trace means live, and the printed glyphInk underneath
+// keeps the unselected caps perfectly readable at 0.3.
+function GlowGlyph({ type, color, active = false }) {
+  const map = useMemo(() => glyphTexture(type), [type])
+  return (
+    <mesh position={[0, 0, 0.842]} renderOrder={4}>
+      <planeGeometry args={[CAP, CAP]} />
+      <meshBasicMaterial
+        map={map}
+        color={color}
+        transparent
+        opacity={active ? 1 : 0.3}
+        depthWrite={false}
+        toneMapped={false}
+      />
     </mesh>
   )
-
-  let mark
-  if (type === 'kick') {
-    mark = (
-      <mesh>
-        <circleGeometry args={[0.145, 32]} />
-        {material}
-      </mesh>
-    )
-  } else if (type === 'snare') {
-    mark = [-0.13, 0, 0.13].map((y) => bar(y, [0, y, 0], [0.34, 0.045, 0.014]))
-  } else if (type === 'hat') {
-    mark = [
-      bar('a', [0, 0, 0], [0.38, 0.055, 0.014], Math.PI / 4),
-      bar('b', [0, 0, 0], [0.38, 0.055, 0.014], -Math.PI / 4),
-    ]
-  } else if (type === 'clap') {
-    mark = [
-      bar('tl', [-0.1, 0.1, 0], [0.24, 0.045, 0.014], -Math.PI / 4),
-      bar('tr', [0.1, 0.1, 0], [0.24, 0.045, 0.014], Math.PI / 4),
-      bar('bl', [-0.1, -0.1, 0], [0.24, 0.045, 0.014], Math.PI / 4),
-      bar('br', [0.1, -0.1, 0], [0.24, 0.045, 0.014], -Math.PI / 4),
-    ]
-  } else {
-    mark = [
-      bar('top', [0, 0.09, 0], [0.35, 0.045, 0.014], 0.09),
-      bar('bottom', [0, -0.09, 0], [0.35, 0.045, 0.014], -0.09),
-    ]
-  }
-
-  return <group position={[0, 0, 0.842]} renderOrder={4}>{mark}</group>
 }
 
 export default function Keys() {
@@ -164,8 +214,9 @@ export default function Keys() {
         keys.modifier,
         (g, S) => trackGlyphs[t.id](g, S, keys.glyphInk),
         {
-          key: `trk-v3-${activeFinish.id}-${t.id}`,
+          key: `trk-v4-${activeFinish.id}-${t.id}`,
           clean: keys.clean,
+          inkWear: keys.glyphInkWear,
           age: keys.clean ? 0 : undefined,
           grime: keys.clean ? 0 : 0.3,
           edge: 0.62,
@@ -178,10 +229,11 @@ export default function Keys() {
   const swingMap = useMemo(
     () => capColorMap(
       keys.modifier,
-      (g, S) => glyph(g, S, '≈', 180, keys.glyphInk),
+      (g, S) => trackGlyphs.swing(g, S, keys.glyphInk),
       {
-        key: `swing-v3-${activeFinish.id}`,
+        key: `swing-v5-${activeFinish.id}`,
         clean: keys.clean,
+        inkWear: keys.glyphInkWear,
         age: keys.clean ? 0 : undefined,
         grime: keys.clean ? 0 : 0.3,
         edge: 0.62,

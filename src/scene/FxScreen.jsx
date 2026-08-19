@@ -821,12 +821,15 @@ function FxFader({ col, value, accent }) {
   )
 }
 
-// Invisible hit plane over a column's printed mode pill: click cycles the
-// effect's character (LP/HP/BP, SOFT/HARD/FOLD, ...).
+// Invisible hit plane over a column's printed mode pill AND the scope window
+// below it: click either to cycle the effect's character (LP/HP/BP,
+// SOFT/HARD/FOLD, ...). The squiggle is the clearest picture of what the mode
+// does, so it's the thing people aim at — spans y 2.86 (scope floor) to 4.28
+// (pill top), stopping clear of the fader hit plane at 2.70.
 function ModeButton({ col }) {
   return (
     <mesh
-      position={[col.x, 4.03, 0.4]}
+      position={[col.x, 3.57, 0.4]}
       onPointerOver={(event) => {
         event.stopPropagation()
         document.body.style.cursor = 'pointer'
@@ -837,7 +840,7 @@ function ModeButton({ col }) {
         actions.cycleFxMode(col.key)
       }}
     >
-      <planeGeometry args={[1.7, 0.5]} />
+      <planeGeometry args={[1.74, 1.42]} />
       <meshBasicMaterial transparent opacity={0} depthWrite={false} userData={{ fxInvisible: true }} />
     </mesh>
   )

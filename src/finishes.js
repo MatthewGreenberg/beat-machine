@@ -25,9 +25,13 @@ export const FINISHES = [
     keys: {
       step: '#efe9dc',
       stepInk: 'rgba(30,26,22,0.86)',
-      modifier: '#3a3a3d',
-      modifierActive: '#5b595c',
-      glyphInk: 'rgba(226,222,214,0.72)',
+      modifier: '#2d2d30',
+      modifierActive: '#bf6836',
+      // ivory is the one skin with no glyphGlow layer AND full ink wear
+      // speckling the print away, so the ink itself carries the legibility:
+      // full-alpha white, and the speckle dialled back for glyph caps only.
+      glyphInk: 'rgba(255,253,248,1)',
+      glyphInkWear: 0.18,
       play: '#d45b19',
       playGlyph: '#3b1607',
       clear: '#242427',
@@ -80,8 +84,8 @@ export const FINISHES = [
     keys: {
       step: '#b9dce4',
       stepInk: 'rgba(4,38,58,0.9)',
-      modifier: '#071e35',
-      modifierActive: '#165c82',
+      modifier: '#051729',
+      modifierActive: '#2c86ba',
       glyphInk: 'rgba(154,232,255,0.84)',
       glyphGlow: '#72bfd4',
       play: '#29bcea',
@@ -140,7 +144,7 @@ export const FINISHES = [
     keys: {
       step: '#412e2e',
       stepInk: 'rgba(255,220,185,0.97)',
-      modifier: '#6d2521',
+      modifier: '#551d1a',
       modifierActive: '#c05535',
       glyphInk: 'rgba(255,218,188,0.90)',
       play: '#f29a43',
@@ -188,8 +192,8 @@ export const FINISHES = [
     keys: {
       step: '#6f57cf',
       stepInk: 'rgba(238,232,255,0.9)',
-      modifier: '#231e2e',
-      modifierActive: '#4a3a86',
+      modifier: '#1b1724',
+      modifierActive: '#5b3ab6',
       glyphInk: 'rgba(213,199,255,0.85)',
       glyphGlow: '#a98cff',
       play: '#9271ff',

@@ -106,10 +106,38 @@ Rules that bite if you don't know them:
   change), not glowing caps.
 - Each effect has selectable modes (engine `FX_MODE_OPTIONS`): the printed
   pill under a card's title is a button — an invisible `ModeButton` plane
+  covering BOTH the pill and the scope window beneath it (the squiggle is
+  the obvious target, so it cycles too; its bottom edge stops at y 2.86,
+  clear of the fader hit plane's top at 2.70) —
   cycles `actions.cycleFxMode`, the canvas redraws pill + icon from
   `fxMode`, and the engine swaps filter type / drive curve / delay division
   / reverb IR. Keep UI labels (`SUBTITLES`, `filterFreq`) in lockstep with
   the engine's mappings.
+- Selected-track legibility comes from `keys.modifierActive` making a real
+  jump off `keys.modifier` — ember set the bar (dark red -> bright orange,
+  ~+20 lightness at high saturation) and the other three now match it,
+  pulling the active cap toward each skin's accent hue. Grey-on-grey or a
+  jump inside the shadows (cobalt's old L12 -> L30) reads as nothing.
+  `keys.glyphInkWear` optionally dials back `drawLegend`'s speckle for
+  glyph caps only; ivory needs it (no `glyphGlow` layer, `wear: 1`).
+  On cobalt and violet the tint alone can't do it — cobalt's caps are
+  transmissive so `modifierActive` washes out through the glass, and both
+  skins' modifiers sit too dark for a lightness jump to register. There the
+  `GlowGlyph` opacity split carries the state (0.3 rest -> 1 active); the
+  printed `glyphInk` keeps unselected caps readable on its own, so the glow
+  is free to go near-dark.
+- Track keycap glyphs (`trackGlyphs` in `Keys.jsx`) are drawn paths, not
+  font characters: kick = drum head + beater spot, snare = the same head
+  strung with wires, hat = two chevron cymbals on a stand, clap = an
+  8-ray burst, swing = two waves. Font glyphs at 300 weight baked too
+  faint to read on the cap — stroke them. `GLYPH_SCALE` (0.6) sizes the
+  whole family, stroke weight included. `GlowGlyph` (the emissive layer the
+  glass/plasma skins add via `keys.glyphGlow`) is the SAME draw call baked
+  white onto a transparent canvas and hung on a `CAP`-sized plane, tinted
+  by the material. It used to be hand-built geometry in its own units,
+  which drifted off the print every time a glyph changed — cap UVs map the
+  full canvas across `CAP` local units, so plane + shared draw = exact
+  registration for free. Never reintroduce a second copy of the shapes.
 - `drawIcon` draws a distinct trace per mode for ALL four effects, not
   just filter: drive SOFT is a pure tanh sigmoid vs HARD's angular ramp
   vs FOLD's sine; delay tap COUNT/SPACING encodes the sync division
