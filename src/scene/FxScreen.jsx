@@ -8,6 +8,7 @@ import { FINISHES, getFinish } from '../finishes'
 import { BODY_H, BODY_W, PLATE_H, PLATE_Z, TOP_Y } from './layout'
 import { canvas as makeCanvas, memo, toTexture } from './textures'
 import { capNormal, capRoughness } from './capMaterials'
+import { COARSE } from './quality'
 import { useControls } from 'leva'
 
 // Shared across all four faders — leva merges identical schemas into one panel.
@@ -112,8 +113,10 @@ const FRAGMENT = `
 function makeReadoutCanvas() {
   const c = document.createElement('canvas')
   // 1280 wide ≈ 1:1 texels-to-pixels at typical framing; 1024 was upscaling.
-  c.width = 1280
-  c.height = 1920
+  // Coarse devices halve it: the panel spans ~380 css px there, and the
+  // full-size RGBA re-upload on every fader-drag frame stutters mobile GPUs.
+  c.width = COARSE ? 640 : 1280
+  c.height = COARSE ? 960 : 1920
   return c
 }
 
@@ -786,6 +789,9 @@ function FxFader({ col, value, accent }) {
         position={[col.x, trackMid, 0.48]}
         onPointerOver={(event) => {
           event.stopPropagation()
+          // touch never gets a matching pointerout — the fader would stick
+          // at hoverScale
+          if (event.pointerType === 'touch') return
           setHover(true)
           document.body.style.cursor = 'ns-resize'
         }}

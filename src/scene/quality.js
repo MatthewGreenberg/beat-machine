@@ -1,5 +1,13 @@
 import { createContext, useContext } from 'react'
 
+// The one mobile signal everything reuses. Coarse pointer ≈ touch device.
+export const COARSE = typeof window !== 'undefined'
+  && window.matchMedia?.('(pointer: coarse)').matches
+
+// Tap-vs-drag discrimination distance: finger jitter blows through 3px, so
+// touch taps were registering as drags and onPress never fired.
+export const TAP_PX = COARSE ? 9 : 3
+
 export const QUALITY_PRESETS = {
   high: {
     name: 'high',

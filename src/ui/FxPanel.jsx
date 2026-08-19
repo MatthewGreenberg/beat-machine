@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { actions, useStore } from '../state/store'
 import { FINISHES } from '../finishes'
 
@@ -172,9 +172,24 @@ function compile(gl, type, src) {
 const rgb = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255)
 const ACCENTS = FINISHES.map((f) => rgb(f.accent))
 
+// The orb scales with viewport height (see --fx-s / the svh offset in
+// index.css) so it doesn't ride up into the machine on short windows. On
+// narrow screens Rig.jsx's fit-to-width shrinks the machine, so the orb has
+// more clearance there, not less. Floor at 0.62 so the 78px hit target never
+// drops below ~48px on landscape phones.
+const REF_H = 1080
+
 export default function FxPanel() {
   const canvasRef = useRef(null)
   const { finish, fxOpen } = useStore()
+  const [scale, setScale] = useState(1)
+
+  useEffect(() => {
+    const fit = () => setScale(Math.max(0.62, Math.min(1, window.innerHeight / REF_H)))
+    fit()
+    window.addEventListener('resize', fit)
+    return () => window.removeEventListener('resize', fit)
+  }, [])
 
   // The original magnetic WebGL orb stays byte-for-byte the same visual. Its
   // old expanded panel is deliberately never entered; the click now tells the
@@ -341,7 +356,7 @@ export default function FxPanel() {
   return (
     <div
       className="fx"
-      style={{ width: CW, height: CH, '--accent': FINISHES[finish].accent }}
+      style={{ width: CW, height: CH, '--accent': FINISHES[finish].accent, '--fx-s': scale }}
     >
       <canvas ref={canvasRef} className="fx-canvas" style={{ width: CW, height: CH }} />
 

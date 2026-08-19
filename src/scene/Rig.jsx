@@ -5,6 +5,8 @@ import { useLayoutEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { VIEW, DEBUG } from './views'
 import { live } from '../state/store'
+import { COARSE } from './quality'
+import { BODY_W } from './layout'
 
 const phase = (progress, start, end) => {
   const value = THREE.MathUtils.clamp((progress - start) / (end - start), 0, 1)
@@ -16,7 +18,7 @@ const phase = (progress, start, end) => {
 // ?debug freezes parallax and enables drag-orbit so you can dial the look.
 export default function Rig({ children }) {
   const group = useRef()
-  const { pointer, camera } = useThree()
+  const { pointer, camera, size } = useThree()
   const target = useRef(new THREE.Vector2())
   const baseFov = useRef(0)
   const prevMorph = useRef(0)
@@ -33,13 +35,35 @@ export default function Rig({ children }) {
     group.current.rotation.set(VIEW.rotX, VIEW.rotY, 0)
   }, [camera])
 
+  // Fit-to-width: the vertical fov frames the machine for landscape-ish
+  // aspects; on a portrait phone the 10.28-unit body clips off both sides.
+  // Dolly back just far enough that BODY_W + margin fits horizontally.
+  // Margin 0.8 also covers the FX editor pose (+2.2 group dolly, -2° fov
+  // punch) at iPhone aspect — don't shrink it below ~0.65. Locked ?view=
+  // presets keep their exact camera for the screenshot harness.
+  useLayoutEffect(() => {
+    if (VIEW) return
+    const aspect = size.width / size.height
+    const need = (BODY_W / 2 + 0.8) /
+      (Math.tan(THREE.MathUtils.degToRad(baseFov.current / 2)) * aspect)
+    camera.position.z = Math.max(46, need)
+    camera.updateProjectionMatrix()
+  }, [size, camera])
+
   useFrame((state, dt) => {
     if (!VIEW && !DEBUG) {
-      const t = Math.min(dt, 0.1)
-      // x tracks faster than y so side-to-side yaw feels snappy without
-      // making the vertical tilt twitchy
-      target.current.x += (pointer.x - target.current.x) * (1 - Math.exp(-7 * t))
-      target.current.y += (pointer.y - target.current.y) * (1 - Math.exp(-3.5 * t))
+      if (COARSE) {
+        // Touch has no hover pointer — tracking it lurches the machine toward
+        // the last tap and sticks. A slow idle sway keeps the light moving.
+        target.current.x = Math.sin(state.clock.elapsedTime * 0.22) * 0.3
+        target.current.y = Math.sin(state.clock.elapsedTime * 0.15) * 0.15
+      } else {
+        const t = Math.min(dt, 0.1)
+        // x tracks faster than y so side-to-side yaw feels snappy without
+        // making the vertical tilt twitchy
+        target.current.x += (pointer.x - target.current.x) * (1 - Math.exp(-7 * t))
+        target.current.y += (pointer.y - target.current.y) * (1 - Math.exp(-3.5 * t))
+      }
     }
     const g = group.current
     if (!g) return

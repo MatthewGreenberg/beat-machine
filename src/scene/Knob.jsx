@@ -4,6 +4,7 @@ import { useControls } from 'leva'
 import * as THREE from 'three'
 import { BODY_W, TOP_Y, PLATE_H, PLATE_Z } from './layout'
 import { canvas, memo, toTexture } from './textures'
+import { TAP_PX } from './quality'
 import { useStore, actions, getState } from '../state/store'
 import { getFinish } from '../finishes'
 
@@ -458,6 +459,7 @@ export default function Knob() {
         scale={1.035}
         onPointerOver={(event) => {
           event.stopPropagation()
+          if (event.pointerType === 'touch') return
           hover.current = true
           updateCursor()
         }}
@@ -482,7 +484,7 @@ export default function Knob() {
           if (!start) return
           event.stopPropagation()
           const dy = start.y - event.clientY
-          if (Math.abs(dy) >= 3) start.moved = true
+          if (Math.abs(dy) >= TAP_PX) start.moved = true
           if (!start.moved) return
           if (getState().knobMode === 'volume') {
             actions.setVolume(start.volume + dy * (event.shiftKey ? 0.001 : 0.004))

@@ -4,6 +4,7 @@ import { useFrame } from '@react-three/fiber'
 import { useControls } from 'leva'
 import { BODY_W, TOP_Y, PLATE_H, PLATE_Z } from './layout'
 import { canvas, toTexture, memo, scratchCanvas } from './textures'
+import { TAP_PX } from './quality'
 import { actions, getState, live, TRACKS } from '../state/store'
 import { INTRO_DISABLED } from './assemblyMotion'
 
@@ -379,7 +380,7 @@ export default function Screen() {
           if (!drag) return
           e.stopPropagation()
           const dy = drag.y - e.clientY
-          if (Math.abs(dy) >= 3) drag.moved = true
+          if (Math.abs(dy) >= TAP_PX) drag.moved = true
           if (drag.moved) {
             actions.setStepVelocity(drag.step, drag.velocity + dy / 90)
           }

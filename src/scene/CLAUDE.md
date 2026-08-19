@@ -1,5 +1,25 @@
 # src/scene
 
+## Mobile / touch
+
+`quality.js` exports the two shared touch signals: `COARSE` (`(pointer:
+coarse)` media query, the only mobile detection in the app) and `TAP_PX`
+(tap-vs-drag threshold, 9px on touch vs 3px mouse — used by Keycap, Knob,
+Screen). Rig.jsx has a fit-to-width effect: when no `?view=` lock is
+active it dollies the camera back so `BODY_W/2 + 0.8` fits the horizontal
+fov (clamped at the desktop z=46, so wide aspects are pixel-identical).
+The 0.8 margin also covers the FX editor pose (+2.2 group dolly, −2° fov
+punch) at iPhone aspect — don't shrink it below ~0.65. On COARSE the
+pointer parallax is replaced by a slow sine idle sway (touch has no hover
+pointer; tracking it lurches to the last tap and sticks), and
+`makeReadoutCanvas` in FxScreen halves to 640×960 (the per-drag-frame
+texture re-upload stutters mobile GPUs; all px in the file scale by
+`k = canvas.width / 1024` so this is safe). `onPointerOver` handlers with
+visual state early-return on `pointerType === 'touch'` — pointerout never
+reliably follows on touch, so hover states stick. `.stage canvas` gets
+`touch-action: none` in index.css (r3f does not set it); without it every
+keycap/fader drag scrolls the page.
+
 ## FxScreen.jsx rendering contract
 
 The FX panel is a hybrid of three layers, back to front:

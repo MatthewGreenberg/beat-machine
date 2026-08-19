@@ -12,6 +12,7 @@ import TempoMatrix from './scene/TempoMatrix'
 import Hud from './ui/Hud'
 import { DEBUG, NO_POST } from './scene/views'
 import {
+  COARSE,
   QualityProvider,
   qualityConfig,
   qualityNameForFactor,
@@ -19,7 +20,9 @@ import {
 } from './scene/quality'
 
 const FORCED_QUALITY = requestedQuality()
-const INITIAL_FACTOR = 0.58
+// Touch devices boot in the performance preset and let PerformanceMonitor
+// earn its way up; desktop starts balanced as before.
+const INITIAL_FACTOR = COARSE ? 0.2 : 0.58
 
 function CopyValues() {
   useControls('Debug', {

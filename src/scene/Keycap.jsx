@@ -5,7 +5,7 @@ import * as THREE from 'three'
 import { makeKeycapGeometry } from './keycapGeometry'
 import { capMaterial } from './capMaterials'
 import { PITCH, GAP } from './layout'
-import { useQuality } from './quality'
+import { useQuality, TAP_PX } from './quality'
 import {
   INTRO_DISABLED,
   assemblyProgress,
@@ -234,6 +234,9 @@ export default function Keycap({
           receiveShadow
           onPointerOver={(e) => {
             e.stopPropagation()
+            // touch: pointerover fires on tap but pointerout never reliably
+            // follows, so caps stayed visually lifted
+            if (e.pointerType === 'touch') return
             setHover(true)
             document.body.style.cursor = drag.current ? 'grabbing' : cursor
           }}
@@ -261,7 +264,7 @@ export default function Keycap({
             if (!d) return
             e.stopPropagation()
             const dy = d.y - e.clientY
-            if (Math.abs(dy) >= 3) d.moved = true
+            if (Math.abs(dy) >= TAP_PX) d.moved = true
             if (d.moved) onDragY(dy, d.value, e)
           }}
           onPointerUp={(e) => finishDrag(e)}

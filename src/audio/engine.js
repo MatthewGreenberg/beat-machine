@@ -98,6 +98,15 @@ function buildFx(c, from, to) {
   return { pre, post, shaper, filter, delaySend, revSend, dry, delay, reverb }
 }
 
+// iOS suspends the context after a call/Siri/backgrounding and never resumes
+// it on its own. Only ever resumes an existing context — never creates one
+// before a user gesture.
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && ctx && ctx.state !== 'running') ctx.resume()
+  })
+}
+
 export function getContext() {
   if (!ctx) {
     ctx = new (window.AudioContext || window.webkitAudioContext)()
