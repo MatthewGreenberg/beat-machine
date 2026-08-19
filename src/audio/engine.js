@@ -199,7 +199,16 @@ export function setMasterVolume(v) {
 
 export function resume() {
   const c = getContext()
-  if (c.state === 'suspended') c.resume()
+  if (c.state !== 'running') {
+    c.resume()
+    // iOS: resume() is async and a note scheduled in the future does not count
+    // as a user-gesture unlock. A source has to start in this call stack — that
+    // is why the skin whoosh is audible on the first tap and play is not.
+    const src = c.createBufferSource()
+    src.buffer = c._silent ?? (c._silent = c.createBuffer(1, 1, c.sampleRate))
+    src.connect(c.destination)
+    src.start()
+  }
   return c
 }
 

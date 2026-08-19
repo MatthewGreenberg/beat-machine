@@ -6,7 +6,7 @@
 // ponytail: one script, no test framework. It also fails loudly on any page
 // console error, which is how every agent finds a broken build.
 
-import { chromium } from 'playwright'
+import { chromium, webkit } from 'playwright'
 import { spawn } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -46,9 +46,13 @@ if (!(await up())) {
   }
 }
 
-const browser = await chromium.launch({
-  args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
-})
+// --browser=webkit reproduces Safari rendering (canvas 2d + WebGL diverge
+// from Chromium in ways that have bitten the procedural textures).
+const browser = flags.browser === 'webkit'
+  ? await webkit.launch()
+  : await chromium.launch({
+    args: ['--use-gl=angle', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+  })
 const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: 2 })
 
 const errors = []
