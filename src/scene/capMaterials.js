@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { canvas, toTexture, memo, blotchCanvas, scratchCanvas, noiseCanvas } from './textures'
 import { CAP_UV } from './keycapGeometry'
+import { COARSE } from './quality'
 
 // Cap "finishes" — a colour/legend map baked per legend string, plus shared
 // roughness and normal detail so every cap on the board feels like the same
@@ -406,10 +407,13 @@ export function capMaterial({
   const m = new THREE.MeshPhysicalMaterial({
     color,
     map,
-    roughnessMap: capRoughness(f),
+    // Mobile ships clean caps (see finishes.js): the blotchy wear roughness
+    // reads as splotches at phone size, and skipping the maps also skips the
+    // per-pixel normal bake at startup.
+    roughnessMap: COARSE ? null : capRoughness(f),
     roughness,
     metalness,
-    normalMap: capNormal(f),
+    normalMap: COARSE ? null : capNormal(f),
     normalScale: new THREE.Vector2(rubber ? 0.55 : 0.3, rubber ? 0.55 : 0.3),
     // aged ABS keeps a thin greasy film; rubber-feel plastic has none
     clearcoat: rubber ? 0 : 0.28,

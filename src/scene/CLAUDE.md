@@ -20,6 +20,15 @@ reliably follows on touch, so hover states stick. `.stage canvas` gets
 `touch-action: none` in index.css (r3f does not set it); without it every
 keycap/fader drag scrolls the page.
 
+Mobile look/perf: on COARSE every finish is forced to its clean-showroom
+variant (finishes.js: `surface.wear = 0`, `keys.clean = true`, and cobalt's
+transmission/thickness/ior deleted — that material forced a full extra
+scene render per frame). `capMaterial` skips its wear roughness/normal maps
+on COARSE (they read as splotches at phone size, and skipping them skips
+the per-pixel normal bake at startup), and Post.jsx doesn't mount N8AO on
+COARSE at all — it was the most expensive standing pass and near-invisible
+on a phone. Wear/rust rendering is otherwise untouched on desktop.
+
 ## FxScreen.jsx rendering contract
 
 The FX panel is a hybrid of three layers, back to front:

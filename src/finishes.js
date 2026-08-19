@@ -1,3 +1,5 @@
+import { COARSE } from './scene/quality'
+
 export const FINISHES = [
   {
     id: 'ivory',
@@ -220,6 +222,23 @@ export const FINISHES = [
     },
   },
 ]
+
+// Mobile: at phone size the wear story reads as noise — plate rust as dirt,
+// cap grime/aging as splotches — so every finish ships its clean-showroom
+// variant (the look violet already has; capMaterial also drops its wear
+// roughness/normal maps on COARSE). Dropping cobalt's transmission kills the
+// full extra scene render that one material forces every frame.
+if (COARSE) {
+  for (const f of FINISHES) {
+    f.surface.wear = 0
+    f.keys.clean = true
+    if (f.keys.material) {
+      delete f.keys.material.transmission
+      delete f.keys.material.thickness
+      delete f.keys.material.ior
+    }
+  }
+}
 
 export function getFinish(index) {
   return FINISHES[index] ?? FINISHES[0]

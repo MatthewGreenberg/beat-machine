@@ -15,7 +15,7 @@ import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { VIEW, VIEWS, NO_POST } from './views'
-import { useQuality } from './quality'
+import { useQuality, COARSE } from './quality'
 import { live } from '../state/store'
 
 // EffectComposer forces renderer.toneMapping = NoToneMapping, so without an
@@ -108,16 +108,19 @@ export default function Post() {
   return (
     <EffectComposer multisampling={quality.multisampling}>
       {/* crevice darkening between caps — most of the material separation in
-          the reference is contact shadow, not light */}
-      <N8AO
-        ref={aoRef}
-        aoRadius={aoRadius}
-        distanceFalloff={0.5}
-        intensity={ao}
-        aoSamples={quality.aoSamples}
-        denoiseSamples={quality.denoiseSamples}
-        halfRes
-      />
+          the reference is contact shadow, not light. Skipped on touch: it is
+          the most expensive standing pass and near-invisible at phone size. */}
+      {!COARSE && (
+        <N8AO
+          ref={aoRef}
+          aoRadius={aoRadius}
+          distanceFalloff={0.5}
+          intensity={ao}
+          aoSamples={quality.aoSamples}
+          denoiseSamples={quality.denoiseSamples}
+          halfRes
+        />
+      )}
       {showDof && (
         <DepthOfField
           worldFocusDistance={dist}
