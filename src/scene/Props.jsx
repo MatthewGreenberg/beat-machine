@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { BODY_W, KEYS_W, TOP_Y, PLATE_Z, KEYS_TOP_Y } from './layout'
@@ -391,9 +391,12 @@ function Sticker({
   castShadow = false,
   renderOrder = 0,
   delay = 0,
+  animate = true,
 }) {
   const group = useRef()
-  const elapsed = useRef(0)
+  // Latched at mount (stickers remount per finish), so a later fx toggle can't retrigger it.
+  const [intro] = useState(animate)
+  const elapsed = useRef(intro ? 0 : delay + 1)
   const geo = useMemo(() => peelPlane(w, h, cornerX, cornerY, peel), [w, h, cornerX, cornerY, peel])
   const shadowTex = useMemo(() => memo('props:softShadow', () => toTexture(softCircleCanvas(128))), [])
   const shadowSize = Math.max(w, h) * 0.85
@@ -422,7 +425,7 @@ function Sticker({
       ref={group}
       position={position}
       rotation={[0, 0, rotation]}
-      scale={[0.001, 0.001, 0.001]}
+      scale={intro ? 0.001 : 1}
     >
       <mesh
         position={[cornerX * w * 0.24, cornerY * h * 0.24, -0.01]}
@@ -470,6 +473,7 @@ function Sticker({
 
 function Decals() {
   const finishIndex = useStore((state) => state.finish)
+  const fxOpen = useStore((state) => state.fxOpen)
   const finish = getFinish(finishIndex)
   const style = finish.stickers
   const boltTex = useMemo(
@@ -505,6 +509,7 @@ function Decals() {
         peel={0.09}
         texture={smileyTex}
         delay={0.04}
+        animate={!fxOpen}
         foil
       />
       <Sticker
@@ -516,6 +521,7 @@ function Decals() {
         peel={0.14}
         texture={boltTex}
         delay={0.12}
+        animate={!fxOpen}
         foil
       />
       <Sticker
@@ -527,6 +533,7 @@ function Decals() {
         peel={0.12}
         texture={passTex}
         delay={0.2}
+        animate={!fxOpen}
         foil
       />
     </group>

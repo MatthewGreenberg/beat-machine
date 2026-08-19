@@ -32,7 +32,9 @@ body {
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
-.fx-canvas { position: absolute; inset: 0; display: block; pointer-events: none; }
+/* z-index: the canvas glyph paints over the button's bezel ring; pointer-events
+   stays none so clicks still land on the button underneath. */
+.fx-canvas { position: absolute; inset: 0; display: block; pointer-events: none; z-index: 1; }
 
 .fx-toggle {
   position: absolute;
@@ -45,9 +47,29 @@ body {
   cursor: pointer;
   transition: width 420ms cubic-bezier(0.22, 1, 0.36, 1),
               height 420ms cubic-bezier(0.22, 1, 0.36, 1),
+              top 420ms cubic-bezier(0.22, 1, 0.36, 1),
               transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 .fx-toggle:focus-visible { outline: 1px solid var(--accent); outline-offset: 3px; }
+
+/* Gamepad-style bezel ring around the orb. */
+.fx-toggle::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 50%;
+  border: 1px solid var(--accent);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 200ms ease-out, transform 200ms ease-out,
+              inset 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+/* Open = the orb is a close X, so the bezel tucks in to match the smaller glyph. */
+/* matches the 11px drop the X glyph takes in the shader */
+.fx-toggle[aria-expanded='true'] { top: calc(50% + 11px); }
+.fx-toggle[aria-expanded='true']::after { inset: 20px; }
+.fx-toggle:hover::after { opacity: 0.9; transform: scale(1.04); }
+.fx-toggle:active::after { transform: scale(0.96); }
 
 .fx-rows { position: absolute; inset: 0; pointer-events: none; }
 

@@ -79,10 +79,11 @@ void main() {
   // Editor mode: the blob folds into a close X — same object, new duty.
   // uX is spring-driven so it snaps past and settles like the open morph.
   float xm = clamp(uX, 0.0, 1.0);
-  vec2 xp = mat2(0.7071, -0.7071, 0.7071, 0.7071) * (P - uOff * 0.3);
-  float arm = BR * 0.62;
-  float dX = min(sdBox(xp, vec2(arm, 3.2), 3.2), sdBox(xp, vec2(3.2, arm), 3.2))
-           - uPress * 2.5;
+  // X mode drops 11px; the bezel ring shifts with it (see .fx-toggle in index.css)
+  vec2 xp = mat2(0.7071, -0.7071, 0.7071, 0.7071) * (P - uOff * 0.3 + vec2(0.0, 11.0));
+  float arm = BR * 0.42;
+  float dX = min(sdBox(xp, vec2(arm, 2.3), 2.3), sdBox(xp, vec2(2.3, arm), 2.3))
+           - uPress * 2.0;
   dBlob = mix(dBlob, dX, xm);
 
   // open: the panel. Blending the two distance fields morphs one into the other.

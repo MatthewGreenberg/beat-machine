@@ -3,20 +3,49 @@
 
 let ctx = null
 let master = null
+let sfxBus = null
 let comp = null
 let fx = null
 
 // ---- Master FX bus ---------------------------------------------------------
-// comp -> drive -> filter -> [dry | tempo-synced delay | plate] -> master
+// comp -> drive -> filter -> [dry | tempo-synced delay | reverb] -> master
 
-function driveCurve() {
+// Selectable character per effect; the panel cycles these via setFxMode.
+export const FX_MODE_OPTIONS = {
+  filter: ['LP', 'HP', 'BP'],
+  drive: ['SOFT', 'HARD', 'FOLD'],
+  delay: ['1/16', '1/8', '1/4'],
+  space: ['PLATE', 'HALL', 'SPRING'],
+}
+const DELAY_DIV = { '1/16': 0.25, '1/8': 0.5, '1/4': 1 }
+const FILTER_TYPE = { LP: 'lowpass', HP: 'highpass', BP: 'bandpass' }
+const modes = { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE' }
+// Last-applied panel values, so a mode change can re-apply its mapping.
+const last = { filter: 1, drive: 0, delay: 0, space: 0, bpm: 120 }
+
+const curveCache = {}
+function driveCurve(mode = 'SOFT') {
+  if (curveCache[mode]) return curveCache[mode]
   const n = 1024
   const curve = new Float32Array(n)
-  for (let i = 0; i < n; i++) curve[i] = Math.tanh(((i / (n - 1)) * 2 - 1) * 2.2)
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1)) * 2 - 1
+    curve[i] = mode === 'HARD' ? Math.max(-0.8, Math.min(0.8, x * 2.4))
+      : mode === 'FOLD' ? Math.sin(x * Math.PI * 1.4)
+      : Math.tanh(x * 2.2)
+  }
+  curveCache[mode] = curve
   return curve
 }
 
-// ponytail: generated noise impulse instead of shipping an IR file.
+// ponytail: generated noise impulses instead of shipping IR files.
+const IR_PARAMS = { PLATE: [1.9, 3.4], HALL: [3.2, 2.2], SPRING: [0.9, 5.5] }
+const irCache = {}
+function impulseFor(c, mode) {
+  if (!irCache[mode]) irCache[mode] = impulse(c, ...IR_PARAMS[mode])
+  return irCache[mode]
+}
+
 function impulse(c, seconds = 1.9, decay = 3.4) {
   const len = Math.floor(c.sampleRate * seconds)
   const buf = c.createBuffer(2, len, c.sampleRate)
@@ -52,20 +81,21 @@ function buildFx(c, from, to) {
   delaySend.gain.value = 0
 
   const reverb = c.createConvolver()
-  reverb.buffer = impulse(c)
+  reverb.buffer = impulseFor(c, modes.space)
   const revSend = c.createGain()
   revSend.gain.value = 0
+  const dry = c.createGain() // ducked as the space send rises (wet/dry)
 
   from.connect(pre)
   pre.connect(shaper)
   shaper.connect(post)
   post.connect(filter)
-  filter.connect(to)                                   // dry
+  filter.connect(dry).connect(to)                      // dry
   filter.connect(delaySend).connect(delay).connect(to)
   delay.connect(damp).connect(feedback).connect(delay) // damped feedback loop
   filter.connect(revSend).connect(reverb).connect(to)
 
-  return { pre, post, filter, delaySend, revSend, delay }
+  return { pre, post, shaper, filter, delaySend, revSend, dry, delay, reverb }
 }
 
 export function getContext() {
@@ -78,10 +108,25 @@ export function getContext() {
     comp.release.value = 0.15
     master = ctx.createGain()
     master.gain.value = 0.5
-    fx = buildFx(ctx, comp, master)
+    // Beat sits 30% under the mech sfx, which ride their own bus into master.
+    const beatBus = ctx.createGain()
+    beatBus.gain.value = 0.7
+    beatBus.connect(master)
+    sfxBus = ctx.createGain()
+    sfxBus.gain.value = 1.35
+    sfxBus.connect(master)
+    fx = buildFx(ctx, comp, beatBus)
     master.connect(ctx.destination)
   }
   return ctx
+}
+
+// Frequency mapping per filter mode. HP/BP sweep upward with the fader so
+// "more fader" always means "more effect".
+export function filterFrequency(v, mode = modes.filter) {
+  return mode === 'HP' ? 20 * Math.pow(400, v)
+    : mode === 'BP' ? 200 * Math.pow(40, v)
+    : 180 * Math.pow(100, v)
 }
 
 // Panel controls, all normalised 0..1.
@@ -89,18 +134,48 @@ export function setFx(name, v) {
   const c = getContext()
   const t = c.currentTime
   const ramp = 0.03
-  if (name === 'filter') fx.filter.frequency.setTargetAtTime(180 * Math.pow(100, v), t, ramp)
+  last[name] = v
+  if (name === 'filter') fx.filter.frequency.setTargetAtTime(filterFrequency(v), t, ramp)
   else if (name === 'drive') {
     fx.pre.gain.setTargetAtTime(1 + v * 7, t, ramp)
     fx.post.gain.setTargetAtTime(1 / (1 + v * 2.6), t, ramp)
   } else if (name === 'delay') fx.delaySend.gain.setTargetAtTime(v * 0.55, t, ramp)
-  else if (name === 'space') fx.revSend.gain.setTargetAtTime(v * 0.75, t, ramp)
+  else if (name === 'space') {
+    // Curved send + dry duck: low fader is a subtle sheen, high fader
+    // washes the kit out into the room instead of plateauing.
+    fx.revSend.gain.setTargetAtTime(Math.pow(v, 1.6) * 1.5, t, ramp)
+    fx.dry.gain.setTargetAtTime(1 - v * 0.55, t, ramp)
+  }
 }
 
-// Keep the delay on an eighth note so it never smears against the pattern.
+export function setFxMode(name, mode) {
+  const c = getContext()
+  modes[name] = mode
+  if (name === 'filter') {
+    fx.filter.type = FILTER_TYPE[mode]
+    fx.filter.Q.value = mode === 'BP' ? 1.6 : 0.9
+    setFx('filter', last.filter)
+  } else if (name === 'drive') fx.shaper.curve = driveCurve(mode)
+  else if (name === 'delay') syncDelay(last.bpm)
+  else if (name === 'space') fx.reverb.buffer = impulseFor(c, mode)
+}
+
+// A small relay click for the mode selector pills on the FX panel.
+export function modeTick() {
+  const c = resume()
+  mechClick(c, c.currentTime, 0.05, 2000)
+}
+
+// Keep the delay on the selected sync division so it never smears against
+// the pattern.
 export function syncDelay(bpm) {
   const c = getContext()
-  fx.delay.delayTime.setTargetAtTime(Math.min(1.4, 60 / bpm / 2), c.currentTime, 0.05)
+  last.bpm = bpm
+  fx.delay.delayTime.setTargetAtTime(
+    Math.min(1.4, (60 / bpm) * DELAY_DIV[modes.delay]),
+    c.currentTime,
+    0.05,
+  )
 }
 
 export function setMasterVolume(v) {
@@ -115,9 +190,9 @@ export function resume() {
   return c
 }
 
-// Mechanical foley for the FX-panel transformation. Everything connects
-// straight to master — the panel's own sound must never be coloured by
-// whatever FILTER/DRIVE settings the panel is about to edit.
+// Mechanical foley for the FX-panel transformation. Everything rides the
+// sfx bus straight into master — the panel's own sound must never be
+// coloured by whatever FILTER/DRIVE settings the panel is about to edit.
 
 // Short filtered-noise tick: a relay/latch.
 function mechClick(c, t, gain = 0.045, freq = 2600) {
@@ -130,7 +205,7 @@ function mechClick(c, t, gain = 0.045, freq = 2600) {
   const g = c.createGain()
   g.gain.setValueAtTime(gain, t)
   g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045)
-  n.connect(f).connect(g).connect(master)
+  n.connect(f).connect(g).connect(sfxBus)
   n.start(t)
   n.stop(t + 0.06)
 }
@@ -156,7 +231,7 @@ function mechWhirr(c, t, dur, f0, f1, gain = 0.04) {
   const tremGain = c.createGain()
   tremGain.gain.value = gain * 0.45
   trem.connect(tremGain).connect(g.gain)
-  n.connect(bp).connect(g).connect(master)
+  n.connect(bp).connect(g).connect(sfxBus)
   n.start(t)
   n.stop(t + dur + 0.02)
   trem.start(t)
@@ -184,6 +259,29 @@ export function uiWhoosh(open) {
     mechWhirr(c, t + 0.55, 0.28, 68, 118, 0.024)
     mechClick(c, t + 0.66, 0.045, 1600)
   }
+}
+
+// Airy band-swept noise for the skin swap — rises then falls away, one breath.
+export function skinWhoosh() {
+  const c = resume()
+  const t = c.currentTime
+  const dur = 0.45
+  const n = c.createBufferSource()
+  n.buffer = noiseBuffer(c)
+  const bp = c.createBiquadFilter()
+  bp.type = 'bandpass'
+  bp.Q.value = 1.1
+  bp.frequency.setValueAtTime(90, t)
+  bp.frequency.exponentialRampToValueAtTime(650, t + dur * 0.55)
+  bp.frequency.exponentialRampToValueAtTime(140, t + dur)
+  const g = c.createGain()
+  g.gain.setValueAtTime(0.0001, t)
+  // low band carries less energy, so push the envelope harder
+  g.gain.exponentialRampToValueAtTime(0.3, t + dur * 0.4)
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+  n.connect(bp).connect(g).connect(sfxBus)
+  n.start(t)
+  n.stop(t + dur + 0.02)
 }
 
 function noiseBuffer(c) {

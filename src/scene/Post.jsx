@@ -11,7 +11,7 @@ import {
 } from '@react-three/postprocessing'
 import { BlendFunction, KernelSize, ToneMappingMode } from 'postprocessing'
 import { useControls } from 'leva'
-import { useMemo } from 'react'
+import { useMemo, useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import { VIEW, VIEWS, NO_POST } from './views'
@@ -73,13 +73,32 @@ export default function Post() {
   // The effect holds this exact Vector2 as its uniform, so mutating it in
   // place animates the pass without rebuilding anything.
   const caOffset = useMemo(() => new THREE.Vector2(), [])
+  const vignetteRef = useRef()
+  const aoRef = useRef()
   useFrame(() => {
     // Driven by dolly speed, so the smear exists only while the camera is
     // pushing in/out. The multiplier is huge because radialModulation eats
     // most of the offset away from the screen edges.
     const pulse = Math.min(Math.abs(live.dollyVel) / 4, 1)
-    const amt = aberration * (1 + pulse * 90)
+    // Base aberration fades with the morph: RGB fringing over the FX panel's
+    // small print costs legibility. The dolly pulse still fires mid-morph.
+    const amt = aberration * (1 - live.fxMorph * 0.85) * (1 + pulse * 90)
     caOffset.set(amt, amt * 1.25)
+    // The FX editor is a bright near-full-frame panel; at full vignette its
+    // falloff paints a huge grey ellipse across the white face. Fade it with
+    // the morph — reads as the camera adapting exposure to the bright screen.
+    const vignette = vignetteRef.current
+    if (vignette) {
+      vignette.uniforms.get('darkness').value = vignetteDark * (1 - live.fxMorph * 0.85)
+    }
+    // Full-strength wide-radius AO inks dark halos around the fader caps on
+    // the bright FX panel — toon outlines. Tighten the radius and soften the
+    // intensity with the morph: tight contact AO still grounds the card slabs
+    // and caps without the halos.
+    if (aoRef.current) {
+      aoRef.current.configuration.intensity = ao * (1 - live.fxMorph * 0.55)
+      aoRef.current.configuration.aoRadius = aoRadius * (1 - live.fxMorph * 0.58)
+    }
   })
 
   if (NO_POST) return null
@@ -91,6 +110,7 @@ export default function Post() {
       {/* crevice darkening between caps — most of the material separation in
           the reference is contact shadow, not light */}
       <N8AO
+        ref={aoRef}
         aoRadius={aoRadius}
         distanceFalloff={0.5}
         intensity={ao}
@@ -118,7 +138,7 @@ export default function Post() {
       />
       <ToneMapping mode={ToneMappingMode.ACES_FILMIC} />
       <ChromaticAberration offset={caOffset} radialModulation modulationOffset={0.4} />
-      <Vignette eskil={false} offset={vignetteOffset} darkness={vignetteDark} />
+      <Vignette ref={vignetteRef} eskil={false} offset={vignetteOffset} darkness={vignetteDark} />
       <Noise opacity={grain} blendFunction={BlendFunction.OVERLAY} />
       {quality.antialias === 'fxaa' && <FXAA />}
     </EffectComposer>

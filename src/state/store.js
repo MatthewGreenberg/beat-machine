@@ -8,7 +8,11 @@ import {
   setKit,
   syncDelay,
   setFx as setAudioFx,
+  setFxMode as setAudioFxMode,
+  FX_MODE_OPTIONS,
+  modeTick,
   uiWhoosh,
+  skinWhoosh,
 } from '../audio/engine'
 import { FINISHES } from '../finishes'
 
@@ -49,6 +53,8 @@ let state = {
     delay: 0,
     space: 0,
   },
+  // must match the engine's mode defaults
+  fxMode: { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE' },
 }
 
 // Mutable mirror the render loop reads every frame without triggering React.
@@ -134,6 +140,14 @@ export const actions = {
     setAudioFx(name, next)
     set({ fx: { ...state.fx, [name]: next } })
   },
+  cycleFxMode(name) {
+    const options = FX_MODE_OPTIONS[name]
+    if (!options) return
+    const mode = options[(options.indexOf(state.fxMode[name]) + 1) % options.length]
+    modeTick()
+    setAudioFxMode(name, mode)
+    set({ fxMode: { ...state.fxMode, [name]: mode } })
+  },
   cycleSwing() {
     const current = state.swing[state.track] ?? 0
     const currentIndex = SWING_OPTIONS.findIndex(
@@ -144,6 +158,8 @@ export const actions = {
   },
   setFinish(index) {
     const finish = ((index % FINISHES.length) + FINISHES.length) % FINISHES.length
+    if (finish === state.finish) return
+    skinWhoosh()
     set({ finish })
     setKit(FINISH_KIT[FINISHES[finish].id] ?? null)
   },
@@ -156,3 +172,8 @@ export const actions = {
 }
 
 export { TRACKS }
+
+// ?debug exposes actions for scripted screenshots (see views.js DEBUG).
+if (typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('debug')) {
+  window.actions = actions
+}

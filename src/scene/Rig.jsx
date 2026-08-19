@@ -50,24 +50,28 @@ export default function Rig({ children }) {
     const baseRotX = VIEW ? VIEW.rotX : -target.current.y * 0.26
     const baseX = VIEW ? 0 : target.current.x * 0.9
 
-    // Editor mode docks the product into a deliberate face-on inspection pose.
-    // The physical machine moves; the camera and background remain continuous.
-    g.rotation.y = THREE.MathUtils.damp(g.rotation.y, baseRotY * (1 - mix), 12, frameTime)
-    g.rotation.x = THREE.MathUtils.damp(g.rotation.x, baseRotX * (1 - mix), 12, frameTime)
+    // Editor mode docks the product into a deliberate near-face-on inspection
+    // pose. 25% of the pointer parallax survives at full morph so speculars
+    // and env reflections keep sliding across the lit panel face — a fully
+    // dead-on camera is what made the editor read as a flat 2D mockup.
+    g.rotation.y = THREE.MathUtils.damp(g.rotation.y, baseRotY * (1 - 0.75 * mix), 12, frameTime)
+    g.rotation.x = THREE.MathUtils.damp(g.rotation.x, baseRotX * (1 - 0.75 * mix), 12, frameTime)
     g.rotation.z = THREE.MathUtils.damp(g.rotation.z, -0.012 * mix, 12, frameTime)
-    g.position.x = THREE.MathUtils.damp(g.position.x, baseX * (1 - mix), 12, frameTime)
+    g.position.x = THREE.MathUtils.damp(g.position.x, baseX * (1 - 0.75 * mix), 12, frameTime)
     g.position.y = THREE.MathUtils.damp(g.position.y, mix * 0.08, 12, frameTime)
     // A real dolly-in for the editor pose; slower damping than the rotations
     // so the push reads as a camera glide, not part of the machine's snap.
     const prevZ = g.position.z
-    g.position.z = THREE.MathUtils.damp(g.position.z, mix * 3.1, 7, frameTime)
+    // 2.2 (with the softer fov punch below) leaves a dark chassis/backdrop
+    // border around the editor — full-frame white was killing the contrast.
+    g.position.z = THREE.MathUtils.damp(g.position.z, mix * 2.2, 7, frameTime)
     // Post reads this: chromatic aberration rides the dolly speed, so the
     // smear exists only while the camera is actually moving.
     live.dollyVel = (g.position.z - prevZ) / frameTime
 
     // Dolly-zoom punch: fov tightens as the glass strokes fire, so the push
     // compresses the frame instead of just enlarging it.
-    const fovTarget = baseFov.current - phase(live.fxMorph, 0.45, 0.95) * 3.5
+    const fovTarget = baseFov.current - phase(live.fxMorph, 0.45, 0.95) * 2.0
     camera.fov = THREE.MathUtils.damp(camera.fov, fovTarget, 6, frameTime)
     camera.updateProjectionMatrix()
 
