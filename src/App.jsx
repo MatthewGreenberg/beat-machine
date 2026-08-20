@@ -12,6 +12,7 @@ import TempoMatrix from './scene/TempoMatrix'
 import TutorialAnchor from './scene/TutorialAnchor'
 import Hud from './ui/Hud'
 import Tutorial from './ui/Tutorial'
+import { Analytics } from '@vercel/analytics/react'
 import { DEBUG, NO_POST } from './scene/views'
 import {
   COARSE,
@@ -110,6 +111,7 @@ export default function App() {
         </Canvas>
         <Hud />
         <Tutorial />
+        <Analytics />
       </div>
     </QualityProvider>
   )
