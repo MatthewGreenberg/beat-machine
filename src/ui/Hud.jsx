@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { actions, useStore, TRACKS } from '../state/store'
+import About from './About'
 import FxPanel from './FxPanel'
 
 // Keyboard is the fast path: 1-4 pick a track, Q..] toggle the 16 steps,
@@ -15,7 +16,7 @@ export default function Hud() {
       if (e.key === 'Escape' && fxOpen) { actions.closeFx(); return }
       // In editor mode the hardware is behind glass, so its performance
       // shortcuts pause with it instead of firing invisible controls.
-      if (fxOpen || e.target?.closest?.('.fx')) return
+      if (fxOpen || e.target?.closest?.('.fx, .about')) return
       if (e.code === 'Space') { e.preventDefault(); actions.togglePlay(); return }
       if (e.code === 'Backspace') { e.preventDefault(); actions.clear(); return }
       const i = STEP_KEYS.indexOf(e.key.toLowerCase())
@@ -32,5 +33,10 @@ export default function Hud() {
     return () => window.removeEventListener('keydown', onKey)
   }, [track, fxOpen])
 
-  return <FxPanel />
+  return (
+    <>
+      <About />
+      <FxPanel />
+    </>
+  )
 }

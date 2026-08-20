@@ -29,6 +29,34 @@ function FxSink({ row, children }) {
   return <group ref={ref}>{children}</group>
 }
 
+// Transport glyph: the play triangle and the stop square are the same four
+// vertices, so the key morphs between them instead of hard-swapping icons.
+// The triangle just collapses its two right-hand corners onto the tip.
+const GLYPH_PLAY = [-0.17, 0.294, 0.34, 0, -0.17, -0.294, 0.34, 0]
+const GLYPH_STOP = [-0.25, 0.25, 0.25, 0.25, -0.25, -0.25, 0.25, -0.25]
+
+function TransportGlyph({ playing, color }) {
+  const ref = useRef()
+  const t = useRef(playing ? 1 : 0)
+  useFrame((_, delta) => {
+    const geo = ref.current
+    if (!geo) return
+    t.current = THREE.MathUtils.damp(t.current, playing ? 1 : 0, 9, delta)
+    const pos = geo.attributes.position
+    for (let i = 0; i < 4; i++) {
+      pos.setX(i, THREE.MathUtils.lerp(GLYPH_PLAY[i * 2], GLYPH_STOP[i * 2], t.current))
+      pos.setY(i, THREE.MathUtils.lerp(GLYPH_PLAY[i * 2 + 1], GLYPH_STOP[i * 2 + 1], t.current))
+    }
+    pos.needsUpdate = true
+  })
+  return (
+    <mesh position={[0, 0, 0.902]} scale={[1, 1.08, 1]} renderOrder={2}>
+      <planeGeometry ref={ref} args={[1, 1]} />
+      <meshBasicMaterial color={color} transparent opacity={0.94} depthWrite={false} />
+    </mesh>
+  )
+}
+
 const CHIP_DIM = new THREE.Color('#6b6760')
 const CHIP_ACCENTS = FINISHES.map((f) => new THREE.Color(f.accent))
 
@@ -361,15 +389,7 @@ export default function Keys() {
         depth={playing ? 1 : 0}
         onPress={() => actions.togglePlay()}
       >
-        <mesh position={[0, 0, 0.902]} scale={[1, 1.08, 1]} renderOrder={2}>
-          <circleGeometry args={[0.34, 3]} />
-          <meshBasicMaterial
-            color={keys.playGlyph}
-            transparent
-            opacity={0.94}
-            depthWrite={false}
-          />
-        </mesh>
+        <TransportGlyph playing={playing} color={keys.playGlyph} />
       </Keycap>
       </FxSink>
     </group>
