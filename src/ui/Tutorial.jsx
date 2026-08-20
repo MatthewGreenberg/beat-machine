@@ -73,18 +73,34 @@ const STEPS = [
   },
 ]
 
+let replay = null
+export function replayTutorial() { replay?.() }
+
 export default function Tutorial() {
   const state = useStore()
   const [step, setStep] = useState(0)
   const [ready, setReady] = useState(false)
   const [gone, setGone] = useState(!SHOW)
   const base = useRef(getState())
+  // First visit waits for the assembly intro; a replay starts immediately.
+  const wait = useRef(SHOW ? 2100 : 0)
+
+  useEffect(() => {
+    replay = () => {
+      wait.current = 0
+      base.current = getState()
+      setStep(0)
+      setReady(true)
+      setGone(false)
+    }
+    return () => { replay = null }
+  }, [])
 
   // Let the assembly intro land before pointing at anything (INTRO_DURATION
   // 1.75s in TempoMatrix.jsx, plus a beat).
   useEffect(() => {
     if (gone) return
-    const t = setTimeout(() => setReady(true), 2100)
+    const t = setTimeout(() => setReady(true), wait.current)
     return () => clearTimeout(t)
   }, [gone])
 

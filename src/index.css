@@ -23,6 +23,9 @@ body {
 
 /* ---- About -------------------------------------------------------------- */
 
+/* Tutorial mounts `.tut` until skip/done; keep About off that walkthrough. */
+.stage:has(.tut) .about { display: none; }
+
 .about-toggle {
   position: fixed;
   z-index: 20;
@@ -115,12 +118,12 @@ body {
 
 .about-links { display: flex; gap: 9px; }
 .about-links a {
-  min-width: 76px;
-  padding: 8px 11px;
+  flex: 1;
+  padding: 12px 11px;
   border: 1px solid #35322c;
   border-radius: 6px;
-  color: #938e85;
-  font-size: 9px;
+  color: #cfc9be;
+  font-size: 10px;
   text-align: center;
   text-decoration: none;
   text-transform: uppercase;
@@ -133,6 +136,24 @@ body {
   background: rgba(255, 255, 255, 0.025);
 }
 
+.about-replay {
+  display: block;
+  width: 100%;
+  margin-top: 11px;
+  padding: 4px 0;
+  border: 0;
+  background: transparent;
+  color: #6f6a63;
+  font: inherit;
+  font-size: 8px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: color 160ms ease;
+}
+.about-replay:hover { color: #cfc9be; }
+
 @keyframes about-fade {
   from { opacity: 0; }
   to { opacity: 1; }
@@ -144,7 +165,7 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   .about-backdrop, .about-card { animation: none; }
-  .about-toggle, .about-links a { transition: none; }
+  .about-toggle, .about-links a, .about-replay { transition: none; }
 }
 
 /* ---- FX panel ------------------------------------------------------------

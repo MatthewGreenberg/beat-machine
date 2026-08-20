@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { replayTutorial } from './Tutorial'
 
 export default function About() {
   const [open, setOpen] = useState(false)
@@ -86,6 +87,13 @@ export default function About() {
                 LinkedIn
               </a>
             </nav>
+            <button
+              type="button"
+              className="about-replay"
+              onClick={() => { setOpen(false); replayTutorial() }}
+            >
+              Replay tutorial
+            </button>
           </section>
         </>
       )}
