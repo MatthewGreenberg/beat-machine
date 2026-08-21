@@ -144,6 +144,38 @@ Rules that bite if you don't know them:
   (1/16 = 8 tight taps … 1/4 = 3 wide); space is PLATE (instant attack,
   exp fall) / HALL (slow swell, long tail) / SPRING (decaying wobble).
   If a mode is added to `FX_MODE_OPTIONS`, give it a shape here too.
+- Beat repeat sits in the panel header (`REPEAT_KEY` / `REPEAT_DIV`
+  constants): printed REPEAT label, a physical square `HeaderKey` (3D, skin
+  key recipe; sinks + accent-lit while engaged, `actions.toggleRepeat`) and a
+  printed slice-length pill (`fxMode.repeat`, 1/4…1/32) cycled by a
+  `ModeButton` plane with an explicit rect.
+  `drawKey` is the shared raised-key painter for all pills. It's an SP-404
+  style looper on the SEQUENCER, not audio: `createTransport`'s `getRepeat`
+  returns a length in steps (`REPEAT_STEPS`) and the playhead is held inside
+  the grid-aligned section it was in when engaged (1/32 = half a step, the
+  current step retriggered at double rate; 1/16 and 1/32 latch onto the
+  last step that actually fired, so a roll never grabs silence). A ghost clock keeps counting
+  under the loop so release snaps back in phase with the bar; 1/16 and 1/32
+  fade per repeat (`REPEAT_DECAY`/`REPEAT_FLOOR`). Hold Shift anywhere for a
+  momentary repeat (Hud.jsx).
+- Glitch (`GLITCH_KEY`, momentary `HeaderKey` in the header, `actions.setGlitch`):
+  `createTransport`'s `getGlitch` branch scatters — random slice length
+  (`GLITCH_TICKS`), a random step drawn from the pattern's hits, random gain
+  and sample pitch (`GLITCH_RATES`, via `trigger`'s `rate` arg; synth voices
+  ignore it). Ghost clock keeps it in phase on release.
+- Tape stop (`TAPE_KEY`: a momentary `HeaderKey` centred on its own row
+  below the skin keys, 'TAPE STOP' printed under it — `onRelease` + pointer
+  capture — driving `actions.setTape`): engine `buildTape`/`setTape` is a
+  resonant low-pass + varispeed delay line on the whole beat bus. Press: a
+  `delayTime` curve over `TAPE_T` with exponential speed decay (`TAPE_K`) is
+  the tape grinding to a halt (pitch = 1 − slope) at boosted level (`TAPE_BOOST`) while the filter closes
+  (the wah, `TAPE_Q`), then gain fades after the halt; a
+  brake-only HALL send (`TAPE_VERB`) feeds the delay line from in FRONT so
+  its tail is what gets pitched down (drum hits are too short to glide).
+  The panel FILTER flips to allpass for the brake so it can't starve the sweep.
+  Release snaps straight back to real time, in phase — the transport never
+  slowed.
+  Step lights keep real time during the stop.
 
 ## Post-processing vs the FX panel
 

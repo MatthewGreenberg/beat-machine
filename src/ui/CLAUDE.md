@@ -2,6 +2,7 @@
 
 DOM overlays that sit on top of the R3F canvas (siblings of `<Canvas>` in
 App.jsx). Hud.jsx owns global keyboard shortcuts and mounts FxPanel.
+Hold Shift = momentary beat repeat (`actions.setRepeat`), active in both modes.
 
 ## Tutorial.jsx — first-visit walkthrough
 

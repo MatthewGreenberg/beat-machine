@@ -9,6 +9,8 @@ import {
   syncDelay,
   setFx as setAudioFx,
   setFxMode as setAudioFxMode,
+  REPEAT_STEPS,
+  setTape as setAudioTape,
   FX_MODE_OPTIONS,
   modeTick,
   uiWhoosh,
@@ -54,7 +56,10 @@ let state = {
     space: 0,
   },
   // must match the engine's mode defaults
-  fxMode: { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE' },
+  fxMode: { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE', repeat: '1/4' },
+  repeat: false,
+  tape: false,
+  glitch: false,
 }
 
 // Mutable mirror the render loop reads every frame without triggering React.
@@ -80,6 +85,8 @@ const transport = createTransport({
   getPattern: () => state.pattern,
   getBpm: () => state.bpm,
   getSwing: (trackId = state.track) => state.swing[trackId] ?? 0,
+  getRepeat: () => (state.repeat ? REPEAT_STEPS[state.fxMode.repeat] : 0),
+  getGlitch: () => state.glitch,
   onStep: (s) => {
     live.step = s
     if (s >= 0) {
@@ -139,6 +146,22 @@ export const actions = {
     const next = Math.max(0, Math.min(1, value))
     setAudioFx(name, next)
     set({ fx: { ...state.fx, [name]: next } })
+  },
+  setRepeat(on) {
+    if (on === state.repeat) return
+    set({ repeat: on })
+  },
+  setTape(on) {
+    if (on === state.tape) return
+    setAudioTape(on)
+    set({ tape: on })
+  },
+  setGlitch(on) {
+    if (on !== state.glitch) set({ glitch: on })
+  },
+  toggleRepeat() {
+    modeTick()
+    actions.setRepeat(!state.repeat)
   },
   cycleFxMode(name) {
     const options = FX_MODE_OPTIONS[name]

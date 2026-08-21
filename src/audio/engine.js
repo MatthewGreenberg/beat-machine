@@ -8,6 +8,7 @@ let master = null
 let sfxBus = null
 let comp = null
 let fx = null
+let tape = null
 
 // ---- Master FX bus ---------------------------------------------------------
 // comp -> drive -> filter -> [dry | tempo-synced delay | reverb] -> master
@@ -18,10 +19,14 @@ export const FX_MODE_OPTIONS = {
   drive: ['SOFT', 'HARD', 'FOLD'],
   delay: ['1/16', '1/8', '1/4'],
   space: ['PLATE', 'HALL', 'SPRING'],
+  repeat: ['1/4', '1/8', '1/16', '1/32'],
 }
 const DELAY_DIV = { '1/16': 0.25, '1/8': 0.5, '1/4': 1 }
+// Beat-repeat loop lengths in sequencer steps (SP-404 looper style).
+// 1/32 is half a step: the current step retriggers at double rate.
+export const REPEAT_STEPS = { '1/4': 4, '1/8': 2, '1/16': 1, '1/32': 0.5 }
 const FILTER_TYPE = { LP: 'lowpass', HP: 'highpass', BP: 'bandpass' }
-const modes = { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE' }
+const modes = { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE', repeat: '1/4' }
 // Last-applied panel values, so a mode change can re-apply its mapping.
 const last = { filter: 1, drive: 0, delay: 0, space: 0, bpm: 120 }
 
@@ -100,6 +105,89 @@ function buildFx(c, from, to) {
   return { pre, post, shaper, filter, delaySend, revSend, dry, delay, reverb }
 }
 
+// ---- Tape stop --------------------------------------------------------------
+// A varispeed delay line on the whole beat bus. Output time = input time +
+// delayTime, so ramping delayTime with a quadratic curve IS a tape grinding to
+// a halt (pitch ratio = 1 - slope, 1 -> 0). Every voice, sample or synth, slows
+// identically. A resonant low-pass closes with it — the wahhh. Release snaps
+// straight back to real time, in phase with the bar (the sequencer never
+// slowed).
+const TAPE_T = 0.85         // seconds to a dead stop
+const TAPE_HOLD = 1.6       // stopped tape keeps "rolling" this long before the buffer runs dry
+const TAPE_Q = 7            // filter resonance: the wah
+const TAPE_VERB = 1.3       // brake-only reverb send — the stop always gets its wash
+const TAPE_BOOST = 1.35     // level through the brake; the closing filter eats energy
+const TAPE_K = 6            // speed decay rate; pitch hits 1/e at TAPE_T / TAPE_K
+function buildTape(c, from, to) {
+  const filter = c.createBiquadFilter()
+  filter.type = 'lowpass'
+  filter.frequency.value = 20000
+  filter.Q.value = TAPE_Q
+  const delay = c.createDelay(TAPE_T + TAPE_HOLD + 0.1)
+  const gain = c.createGain()
+  from.connect(filter).connect(delay).connect(gain).connect(to)
+  // own reverb, fed BEFORE the varispeed: drum hits are too short to carry
+  // a pitch glide, the hall tail isn't — it's the sustained thing that sweeps.
+  const verb = c.createConvolver()
+  verb.buffer = impulseFor(c, 'HALL')
+  const send = c.createGain()
+  send.gain.value = 0
+  filter.connect(send).connect(verb).connect(delay)
+  // exponential speed decay: pitch = e^(-k t), so it falls octaves in the
+  // first tenth and tails into the floor — the wheeooo. delay = ∫(1 - pitch).
+  const n = 128
+  const k = TAPE_K / TAPE_T
+  const brake = new Float32Array(n)
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1)) * TAPE_T
+    brake[i] = t - (1 - Math.exp(-k * t)) / k
+  }
+  return { filter, delay, gain, send, brake, on: false }
+}
+
+export function setTape(on) {
+  const c = resume()
+  if (on === tape.on) return
+  tape.on = on
+  const t = c.currentTime
+  const d = tape.delay.delayTime
+  const g = tape.gain.gain
+  const f = tape.filter.frequency
+  const r = tape.send.gain
+  const cur = d.value
+  d.cancelScheduledValues(t)
+  g.cancelScheduledValues(t)
+  f.cancelScheduledValues(t)
+  r.cancelScheduledValues(t)
+  // The panel FILTER sits upstream; a closed LP or a high HP would starve
+  // the sweep, so it steps aside (allpass) for the brake and comes back after.
+  fx.filter.type = on ? 'allpass' : FILTER_TYPE[modes.filter]
+  if (on) {
+    d.setValueAtTime(cur, t)
+    d.setValueCurveAtTime(tape.brake.map((v) => v + cur), t, TAPE_T)
+    // keep the slope at 1 (pitch 0) while stopped, then the buffer runs out
+    d.linearRampToValueAtTime(cur + tape.brake[tape.brake.length - 1] + TAPE_HOLD, t + TAPE_T + TAPE_HOLD)
+    f.setValueAtTime(Math.max(f.value, 200), t)
+    f.exponentialRampToValueAtTime(70, t + TAPE_T)
+    // stay loud through the whole brake — the drama is the grind, not a fade
+    g.setValueAtTime(g.value, t)
+    g.linearRampToValueAtTime(TAPE_BOOST, t + 0.08)
+    g.setTargetAtTime(0, t + TAPE_T, 0.12)
+    r.setValueAtTime(r.value, t)
+    r.linearRampToValueAtTime(TAPE_VERB, t + 0.05) // open fast so there's a tail to drag down
+  } else {
+    // close the send; the hall tail rings out on its own
+    r.setValueAtTime(r.value, t)
+    r.linearRampToValueAtTime(0, t + 0.03)
+    // short dip covers the jump back to real time
+    g.setValueAtTime(g.value, t)
+    g.linearRampToValueAtTime(0, t + 0.015)
+    d.setValueAtTime(0, t + 0.015)
+    f.setValueAtTime(20000, t + 0.015)
+    g.linearRampToValueAtTime(1, t + 0.04)
+  }
+}
+
 // iOS suspends the context after a call/Siri/backgrounding and never resumes
 // it on its own. Only ever resumes an existing context — never creates one
 // before a user gesture.
@@ -138,7 +226,7 @@ export function getContext() {
     // Beat sits 30% under the mech sfx, which ride their own bus into master.
     const beatBus = ctx.createGain()
     beatBus.gain.value = 0.7
-    beatBus.connect(master)
+    tape = buildTape(ctx, beatBus, master)
     sfxBus = ctx.createGain()
     sfxBus.gain.value = 1.35
     sfxBus.connect(master)
@@ -176,8 +264,9 @@ export function setFx(name, v) {
 }
 
 export function setFxMode(name, mode) {
-  const c = getContext()
   modes[name] = mode
+  if (name === 'repeat') return // sequencer-side, see createTransport
+  const c = getContext()
   if (name === 'filter') {
     fx.filter.type = FILTER_TYPE[mode]
     fx.filter.Q.value = mode === 'BP' ? 1.6 : 0.9
@@ -463,13 +552,15 @@ export function setKit(next) {
   }
 }
 
-export function trigger(trackId, when, gain = 1) {
+// ponytail: rate (pitch) only reaches sample kits; the synth voices ignore it.
+export function trigger(trackId, when, gain = 1, rate = 1) {
   const c = resume()
   const t = when ?? c.currentTime
   const buf = kit && buffers.get(`${kit}-${trackId}`)
   if (buf) {
     const src = c.createBufferSource()
     src.buffer = buf
+    src.playbackRate.value = rate
     const g = c.createGain()
     g.gain.value = gain * KIT_GAIN
     src.connect(g).connect(comp)
@@ -490,9 +581,26 @@ const SCHEDULE_AHEAD = 0.12
 // behind the beat without collapsing into the following sixteenth note.
 const SWING_DELAY_SCALE = 0.85
 
-export function createTransport({ getPattern, getBpm, getSwing, onStep }) {
+// getRepeat() returns a loop length in steps (or 0/undefined when off). While
+// on, the playhead is held inside the grid-aligned section it was in when
+// engaged and replays it — the SP-404 looper, on the sequencer instead of audio.
+// A ghost clock keeps counting underneath, so releasing drops you back exactly
+// where the pattern would have been: the loop never knocks the groove out of
+// phase with the bar. Fast divisions (1/16, 1/32) fade a little per repeat —
+// a roll, not a buzz.
+// getGlitch() true = scatter: random slice lengths, random steps pulled from
+// the pattern's own hits, random gain/pitch. Same ghost clock, same in-phase release.
+const REPEAT_DECAY = 0.9   // gain per repeat at 1/16 and 1/32
+const REPEAT_FLOOR = 0.45  // rolls never fade below this
+const GLITCH_TICKS = [0.25, 0.25, 0.5, 0.5, 0.5, 1]  // slice lengths in steps, weighted
+const GLITCH_RATES = [0.5, 0.75, 1, 1, 1.5, 2]        // sample pitch per slice
+export function createTransport({ getPattern, getBpm, getSwing, getRepeat, getGlitch, onStep }) {
   let timer = null
   let step = 0
+  let ghost = 0       // where the pattern would be without the loop
+  let loopStart = -1
+  let lastHit = 0     // most recent step that fired anything
+  let reps = 0
   let nextTime = 0
   let running = false
   // Recently scheduled hits, drained by the render loop for visual sync.
@@ -506,7 +614,41 @@ export function createTransport({ getPattern, getBpm, getSwing, onStep }) {
     const c = getContext()
     while (nextTime < c.currentTime + SCHEDULE_AHEAD) {
       const pattern = getPattern()
-      const duration = stepDur()
+      if (getGlitch?.()) {
+        loopStart = -1
+        const tick = GLITCH_TICKS[Math.floor(Math.random() * GLITCH_TICKS.length)]
+        const duration = stepDur() * tick
+        const hits = []
+        for (let i = 0; i < 16; i++) if (TRACKS.some((t) => pattern[t.id]?.[i])) hits.push(i)
+        const play = hits.length ? hits[Math.floor(Math.random() * hits.length)] : -1
+        if (play >= 0) {
+          const rate = GLITCH_RATES[Math.floor(Math.random() * GLITCH_RATES.length)]
+          const gain = 0.5 + Math.random() * 0.6
+          for (const t of TRACKS) {
+            const v = pattern[t.id]?.[play]
+            if (v) trigger(t.id, nextTime, v * gain, rate)
+          }
+        }
+        queue.push({ step: play, time: nextTime })
+        ghost = (ghost + tick) % 16
+        step = Math.floor(ghost) % 16
+        nextTime += duration
+        continue
+      }
+      const len = getRepeat?.() || 0
+      if (!len) {
+        if (loopStart >= 0) step = Math.floor(ghost) % 16 // release: snap back in phase
+        loopStart = -1
+      } else if (loopStart < 0) {
+        // Section loops align to the grid. Rolls (1/16, 1/32) retrigger the
+        // last thing that sounded — rolling an empty step is just silence.
+        loopStart = len > 1 ? step - (step % len) : lastHit
+        step = len > 1 ? step : lastHit
+        reps = 0
+      }
+      const tick = len > 0 && len < 1 ? len : 1       // 1/32 = half a step
+      const duration = stepDur() * tick
+      const roll = len > 0 && len <= 1 ? Math.max(REPEAT_FLOOR, Math.pow(REPEAT_DECAY, reps)) : 1
       const selectedSwing = getSwing?.() ?? 0
       const visualTime = step % 2 === 1
         ? nextTime + duration * selectedSwing * SWING_DELAY_SCALE
@@ -518,11 +660,19 @@ export function createTransport({ getPattern, getBpm, getSwing, onStep }) {
           const hitTime = step % 2 === 1
             ? nextTime + duration * trackSwing * SWING_DELAY_SCALE
             : nextTime
-          trigger(t.id, hitTime, v)
+          trigger(t.id, hitTime, v * roll, 1)
+          lastHit = step
         }
       }
       queue.push({ step, time: visualTime })
-      step = (step + 1) % 16
+      ghost = (ghost + tick) % 16
+      if (len) {
+        step = loopStart + ((step + 1 - loopStart) % Math.max(1, len))
+        if (step === loopStart) reps++
+      } else {
+        step = (step + 1) % 16
+        ghost = step
+      }
       nextTime += duration
     }
     // Hand the renderer any hits whose audio time has arrived.
@@ -536,6 +686,8 @@ export function createTransport({ getPattern, getBpm, getSwing, onStep }) {
       if (running) return
       running = true
       step = 0
+      ghost = 0
+      loopStart = -1
       whenRunning((c) => {
         if (!running || timer) return
         nextTime = c.currentTime + 0.06

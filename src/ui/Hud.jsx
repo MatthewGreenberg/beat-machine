@@ -13,6 +13,8 @@ export default function Hud() {
   useEffect(() => {
     const onKey = (e) => {
       if (e.repeat) return
+      // hold Shift = momentary beat repeat (works in both modes — it's a performance move)
+      if (e.key === 'Shift') { actions.setRepeat(true); return }
       if (e.key === 'Escape' && fxOpen) { actions.closeFx(); return }
       // In editor mode the hardware is behind glass, so its performance
       // shortcuts pause with it instead of firing invisible controls.
@@ -29,8 +31,13 @@ export default function Hud() {
         actions.selectTrack(TRACKS[(cur + 1) % TRACKS.length].id)
       }
     }
+    const onUp = (e) => { if (e.key === 'Shift') actions.setRepeat(false) }
     window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
+    window.addEventListener('keyup', onUp)
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keyup', onUp)
+    }
   }, [track, fxOpen])
 
   return (

@@ -51,6 +51,14 @@ const HIT_H = TRACK_LEN + 0.5
 // Finish keys sit on the same x grid as the fader columns — the footer reads
 // as another row of the layout instead of a floating strip.
 const FINISH_POS = [-3.675, -1.225, 1.225, 3.675]
+// Beat repeat lives in the header, right of the wordmark: printed label, a
+// physical square key (RepeatKey), slice-length pill.
+const REPEAT_Y = 6.3
+const REPEAT_KEY = { x: 2.45, w: 0.6 }
+const GLITCH_KEY = { x: 0.55, w: 0.6 }
+// Tape stop: bottom centre of the panel, its own row below the skin keys.
+const TAPE_KEY = { x: 0, y: -5.95, w: 0.66 }
+const REPEAT_DIV = { x: 3.55, w: 1.1 }
 
 // Soft radial contact shadow shared by every fader cap — the single biggest
 // "it's really sitting on the panel" cue. Max alpha is baked into the texture
@@ -371,6 +379,42 @@ function drawLed(g, lx, ly, r, color, lit) {
   g.fill()
 }
 
+// Raised dark key with a drop shadow and catch-light lip (the mode pills and
+// the header REPEAT key). `lit` floods it with the accent; `arrows` prints
+// the ‹ › cycle hints in that colour.
+function drawKey(g, px, py, w, h, k, sans, text, { lit, arrows } = {}) {
+  const r = h / 2
+  g.save()
+  g.shadowColor = 'rgba(20,18,15,0.4)'
+  g.shadowBlur = 7 * k
+  g.shadowOffsetY = 3 * k
+  g.beginPath()
+  g.roundRect(px, py, w, h, r)
+  const keyFill = g.createLinearGradient(0, py, 0, py + h)
+  keyFill.addColorStop(0, lit ? lit : 'rgba(64,60,52,0.97)')
+  keyFill.addColorStop(1, lit ? `${lit}cc` : 'rgba(38,35,30,0.97)')
+  g.fillStyle = keyFill
+  g.fill()
+  g.restore()
+  g.lineWidth = 1.5 * k
+  g.strokeStyle = lit ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.24)'
+  g.beginPath()
+  g.roundRect(px + 1.5 * k, py + 1.5 * k, w - 3 * k, h - 3 * k, r - 1.5 * k)
+  g.stroke()
+  g.textAlign = 'center'
+  g.font = `600 ${17 * k}px ${sans}`
+  g.letterSpacing = `${1.5 * k}px`
+  g.fillStyle = lit ? 'rgba(255,255,255,0.98)' : 'rgba(246,241,229,0.95)'
+  g.fillText(text, px + w / 2, py + h / 2 + 1 * k)
+  if (arrows) {
+    g.font = `600 ${16 * k}px ${sans}`
+    g.letterSpacing = '0px'
+    g.fillStyle = arrows
+    g.fillText('‹', px + h * 0.37, py + h / 2 - 1 * k)
+    g.fillText('›', px + w - h * 0.37, py + h / 2 - 1 * k)
+  }
+}
+
 function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
   const g = canvas.getContext('2d')
   const k = canvas.width / 1024
@@ -393,6 +437,16 @@ function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
   g.fillStyle = INK
   g.textAlign = 'left'
   g.fillText('FX', x(-4.15), y(6.3))
+
+  // beat repeat: label, the 3D key's well shadow, slice-length pill
+  g.textAlign = 'right'
+  g.font = `600 ${18 * k}px ${sans}`
+  g.letterSpacing = `${3 * k}px`
+  g.fillStyle = INK
+  g.fillText('GLITCH', x(GLITCH_KEY.x - GLITCH_KEY.w / 2 - 0.18), y(REPEAT_Y))
+  g.fillText('REPEAT', x(REPEAT_KEY.x - REPEAT_KEY.w / 2 - 0.18), y(REPEAT_Y))
+  drawKey(g, x(REPEAT_DIV.x - REPEAT_DIV.w / 2), y(REPEAT_Y + 0.19), REPEAT_DIV.w * sx, 0.38 * sy,
+    k, sans, fxMode.repeat, { arrows: accent })
 
   // engraved rule under the header, and four chassis screws in the corners
   engravedLine(g, x(-4.15), y(5.72), x(4.15), y(5.72), k, 0.8)
@@ -434,37 +488,8 @@ function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
 
     // mode selector: a raised dark key with a drop shadow and catch-light lip
     // — the old ghost pill read as a caption, not a button
-    const pillX = x(cx - 0.8)
-    const pillY = y(4.23)
-    const pillW = 1.6 * sx
-    const pillH = 0.38 * sy
-    const pillR = 0.19 * sy
-    g.save()
-    g.shadowColor = 'rgba(20,18,15,0.4)'
-    g.shadowBlur = 7 * k
-    g.shadowOffsetY = 3 * k
-    g.beginPath()
-    g.roundRect(pillX, pillY, pillW, pillH, pillR)
-    const keyFill = g.createLinearGradient(0, pillY, 0, pillY + pillH)
-    keyFill.addColorStop(0, 'rgba(64,60,52,0.97)')
-    keyFill.addColorStop(1, 'rgba(38,35,30,0.97)')
-    g.fillStyle = keyFill
-    g.fill()
-    g.restore()
-    g.lineWidth = 1.5 * k
-    g.strokeStyle = 'rgba(255,255,255,0.24)'
-    g.beginPath()
-    g.roundRect(pillX + 1.5 * k, pillY + 1.5 * k, pillW - 3 * k, pillH - 3 * k, pillR - 1.5 * k)
-    g.stroke()
-    g.font = `600 ${17 * k}px ${sans}`
-    g.letterSpacing = `${1.5 * k}px`
-    g.fillStyle = 'rgba(246,241,229,0.95)'
-    g.fillText(SUBTITLES[col.key](fx, fxMode[col.key]), x(cx), y(4.03))
-    g.font = `600 ${16 * k}px ${sans}`
-    g.letterSpacing = '0px'
-    g.fillStyle = accent
-    g.fillText('‹', x(cx - 0.66), y(4.05))
-    g.fillText('›', x(cx + 0.66), y(4.05))
+    drawKey(g, x(cx - 0.8), y(4.23), 1.6 * sx, 0.38 * sy, k, sans,
+      SUBTITLES[col.key](fx, fxMode[col.key]), { arrows: accent })
 
     // scope window: a dark mini display the glowing response trace lives in
     drawInset(
@@ -546,6 +571,13 @@ function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
   g.letterSpacing = `${5 * k}px`
   g.fillStyle = 'rgba(22,20,17,0.55)'
   g.fillText('SKIN', x(0), y(-4.33))
+
+  // tape stop: printed name under the 3D key (FinishSelector row)
+  g.textAlign = 'center'
+  g.font = `600 ${16 * k}px ${sans}`
+  g.letterSpacing = `${2.5 * k}px`
+  g.fillStyle = INK
+  g.fillText('TAPE STOP', x(TAPE_KEY.x), y(-6.5))
 
   // status LED above each key, name below. No printed well: the 3D keys sit
   // ~0.3 above the print plane and the rig's pointer parallax shifts them
@@ -826,10 +858,10 @@ function FxFader({ col, value, accent }) {
 // SOFT/HARD/FOLD, ...). The squiggle is the clearest picture of what the mode
 // does, so it's the thing people aim at — spans y 2.86 (scope floor) to 4.28
 // (pill top), stopping clear of the fader hit plane at 2.70.
-function ModeButton({ col }) {
+function ModeButton({ col, x = col.x, y = 3.57, w = 1.74, h = 1.42 }) {
   return (
     <mesh
-      position={[col.x, 3.57, 0.4]}
+      position={[x, y, 0.4]}
       onPointerOver={(event) => {
         event.stopPropagation()
         document.body.style.cursor = 'pointer'
@@ -840,9 +872,75 @@ function ModeButton({ col }) {
         actions.cycleFxMode(col.key)
       }}
     >
-      <planeGeometry args={[1.74, 1.42]} />
+      <planeGeometry args={[w, h]} />
       <meshBasicMaterial transparent opacity={0} depthWrite={false} userData={{ fxInvisible: true }} />
     </mesh>
+  )
+}
+
+// Header latch keys (TAPE, REPEAT): a square hardware key built like the
+// skin keys — contact shadow, dark riser, cap. Sits proud when idle; engaged
+// it sinks into the panel and the cap lights with the accent.
+function HeaderKey({ x, y = REPEAT_Y, w, active, accent, onPress, onRelease }) {
+  const [hover, setHover] = useState(false)
+  const cap = useRef()
+  useFrame((_, dt) => {
+    const group = cap.current
+    if (!group) return
+    const ease = 1 - Math.exp(-18 * Math.min(dt, 0.05))
+    // press travel + a little lift on hover
+    const z = active ? 0.22 : hover ? 0.34 : 0.31
+    group.position.z += (z - group.position.z) * ease
+    const m = group.children[1]?.material
+    if (m) m.emissiveIntensity += ((active ? 1.4 : 0) - m.emissiveIntensity) * ease
+  })
+  return (
+    <group
+      position={[x, y, 0]}
+      onPointerOver={(event) => {
+        event.stopPropagation()
+        setHover(true)
+        document.body.style.cursor = 'pointer'
+      }}
+      onPointerOut={() => { setHover(false); document.body.style.cursor = '' }}
+      onPointerDown={(event) => {
+        event.stopPropagation()
+        // momentary keys hold while pressed, wherever the pointer wanders
+        if (onRelease) event.target.setPointerCapture(event.pointerId)
+        onPress()
+      }}
+      onPointerUp={onRelease}
+      onPointerCancel={onRelease}
+      onLostPointerCapture={onRelease}
+    >
+      <mesh position={[0, -0.06, 0.24]} renderOrder={5}>
+        <planeGeometry args={[w * 1.7, w * 1.7]} />
+        <meshBasicMaterial map={capShadow()} transparent opacity={0} depthWrite={false} userData={{ fxVisual: true }} />
+      </mesh>
+      <group ref={cap} position={[0, 0, 0.31]}>
+        <RoundedBox args={[w * 0.9, w * 0.9, 0.12]} radius={0.04} smoothness={4} position={[0, 0, -0.06]}>
+          <meshPhysicalMaterial color="#26241f" roughness={0.45} metalness={0.25} clearcoat={0.5}
+            clearcoatRoughness={0.3} transparent opacity={0} userData={{ fxVisual: true }} />
+        </RoundedBox>
+        <RoundedBox args={[w, w, 0.16]} radius={0.07} smoothness={5}>
+          <meshPhysicalMaterial
+            color={active ? accent : '#3a3731'}
+            emissive={accent}
+            emissiveIntensity={0}
+            roughness={0.35}
+            roughnessMap={capRoughness('abs')}
+            normalMap={capNormal('abs')}
+            normalScale={[0.3, 0.3]}
+            clearcoat={0.9}
+            clearcoatRoughness={0.1}
+            envMapIntensity={1.5}
+            transparent
+            opacity={0}
+            userData={{ fxVisual: true }}
+          />
+        </RoundedBox>
+      </group>
+    </group>
   )
 }
 
@@ -942,7 +1040,7 @@ const settle = (value) => {
 }
 
 export default function FxScreen({ morph }) {
-  const { fx, fxMode, finish } = useStore()
+  const { fx, fxMode, finish, repeat, tape, glitch } = useStore()
   const activeFinish = getFinish(finish)
   // frame loop lerps toward this; allocating it per frame was GC churn
   const accentColor = useMemo(() => new THREE.Color(activeFinish.accent), [activeFinish.accent])
@@ -1139,6 +1237,12 @@ export default function FxScreen({ morph }) {
           {FADERS.map((col) => (
             <ModeButton key={col.key} col={col} />
           ))}
+          <HeaderKey {...TAPE_KEY} active={tape} accent={activeFinish.accent}
+            onPress={() => actions.setTape(true)} onRelease={() => actions.setTape(false)} />
+          <HeaderKey {...GLITCH_KEY} active={glitch} accent={activeFinish.accent}
+            onPress={() => actions.setGlitch(true)} onRelease={() => actions.setGlitch(false)} />
+          <HeaderKey {...REPEAT_KEY} active={repeat} accent={activeFinish.accent} onPress={actions.toggleRepeat} />
+          <ModeButton col={{ key: 'repeat' }} x={REPEAT_DIV.x} y={REPEAT_Y} w={REPEAT_DIV.w + 0.1} h={0.5} />
           <FinishSelector selected={finish} />
         </group>
       </group>
