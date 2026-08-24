@@ -40,7 +40,9 @@ scene render per frame). `capMaterial` skips its wear roughness/normal maps
 on COARSE (they read as splotches at phone size, and skipping them skips
 the per-pixel normal bake at startup), and Post.jsx doesn't mount N8AO on
 COARSE at all — it was the most expensive standing pass and near-invisible
-on a phone. Wear/rust rendering is otherwise untouched on desktop.
+on a phone. Wear/rust rendering is otherwise untouched on desktop. `qualityNameForFactor` never returns 'high' on COARSE (MSAA 4 +
+dpr 1.5 melts tile GPUs even when PerformanceMonitor earns it), and
+`toTexture` caps anisotropy at 4 on COARSE.
 
 ## FxScreen.jsx rendering contract
 
@@ -63,6 +65,15 @@ The FX panel is a hybrid of three layers, back to front:
    would render ~3× lighter — grey pencil. Light the surface, not the ink.
 
 Rules that bite if you don't know them:
+
+- three's raycaster ignores `visible`, so every handler mesh in the panel
+  would catch clicks even with the editor closed. Two layers of defence:
+  the root useFrame swaps `raycast` off on the whole subtree while
+  `mix <= 0.9` (delete restores the prototype method — so no mesh in
+  FxScreen may set its own `raycast` prop without updating that traverse),
+  AND every state-mutating onPointerDown guards on
+  `live.fxMorph <= 0.9` before stopPropagation, so a closed-panel click
+  passes through to the machine instead of firing an invisible control.
 
 - Every visible FX mesh material needs `transparent`, `opacity={0}`, and
   `userData={{ fxVisual: true }}` — the useFrame cascade drives opacity
@@ -145,8 +156,13 @@ Rules that bite if you don't know them:
   exp fall) / HALL (slow swell, long tail) / SPRING (decaying wobble).
   If a mode is added to `FX_MODE_OPTIONS`, give it a shape here too.
 - Beat repeat sits in the panel header (`REPEAT_KEY` / `REPEAT_DIV`
-  constants): printed REPEAT label, a physical square `HeaderKey` (3D, skin
-  key recipe; sinks + accent-lit while engaged, `actions.toggleRepeat`) and a
+  constants): 80s-badge FX wordmark (upright bold, speed-line stripes
+  cut via destination-out, ghost offset, light speckle wear),
+  printed REPEAT label, a physical square `HeaderKey` (3D, skin
+  key recipe; the cap wears the accent even at rest, and sinks + lights up
+  from within while engaged (steady — a slice-rate pulse was tried and cut),
+  `actions.toggleRepeat`), a printed status LED left of the label (lit while
+  engaged; `repeat` is a `drawReadout` param + redraw dep) and a
   printed slice-length pill (`fxMode.repeat`, 1/4…1/32) cycled by a
   `ModeButton` plane with an explicit rect.
   `drawKey` is the shared raised-key painter for all pills. It's an SP-404
@@ -158,14 +174,19 @@ Rules that bite if you don't know them:
   under the loop so release snaps back in phase with the bar; 1/16 and 1/32
   fade per repeat (`REPEAT_DECAY`/`REPEAT_FLOOR`). Hold Shift anywhere for a
   momentary repeat (Hud.jsx).
-- Glitch (`GLITCH_KEY`, momentary `HeaderKey` in the header, `actions.setGlitch`):
-  `createTransport`'s `getGlitch` branch scatters — random slice length
-  (`GLITCH_TICKS`), a random step drawn from the pattern's hits, random gain
-  and sample pitch (`GLITCH_RATES`, via `trigger`'s `rate` arg; synth voices
-  ignore it). Ghost clock keeps it in phase on release.
-- Tape stop (`TAPE_KEY`: a momentary `HeaderKey` centred on its own row
-  below the skin keys, 'TAPE STOP' printed under it — `onRelease` + pointer
-  capture — driving `actions.setTape`): engine `buildTape`/`setTape` is a
+- Tape stop (`TAPE_KEY`: a momentary `TapeKey` centred on its own row below
+  the skin keys — a strip of blue painter's tape, not a machined key:
+  `tapeStrip` bakes a mottled crepe-paper base, crosswise ridges, creases,
+  ragged torn ends, a peeled-up top-right corner (corner bitten out via
+  destination-out, flap mirrored across the fold and laid back over the
+  face adhesive-side-up), sharpie 'TAPE STOP' lettering, translucency AND drop
+  shadow into a colour map + matching bump canvas (reveal cascade lerps
+  opacity to 1, so alpha lives in the pixels). The plane is a lit matte
+  MeshPhysicalMaterial — the one exception to the unlit-print rule — so the
+  key light rakes the bump crepe; held, it drags like the tape it's
+  stopping — a subtle sag, skew and stretch with a faint sinusoidal
+  reel-judder flutter — instead of sinking/lighting. `onRelease` + pointer capture, driving
+  `actions.setTape`): engine `buildTape`/`setTape` is a
   resonant low-pass + varispeed delay line on the whole beat bus. Press: a
   `delayTime` curve over `TAPE_T` with exponential speed decay (`TAPE_K`) is
   the tape grinding to a halt (pitch = 1 − slope) at boosted level (`TAPE_BOOST`) while the filter closes

@@ -552,15 +552,13 @@ export function setKit(next) {
   }
 }
 
-// ponytail: rate (pitch) only reaches sample kits; the synth voices ignore it.
-export function trigger(trackId, when, gain = 1, rate = 1) {
+export function trigger(trackId, when, gain = 1) {
   const c = resume()
   const t = when ?? c.currentTime
   const buf = kit && buffers.get(`${kit}-${trackId}`)
   if (buf) {
     const src = c.createBufferSource()
     src.buffer = buf
-    src.playbackRate.value = rate
     const g = c.createGain()
     g.gain.value = gain * KIT_GAIN
     src.connect(g).connect(comp)
@@ -588,13 +586,9 @@ const SWING_DELAY_SCALE = 0.85
 // where the pattern would have been: the loop never knocks the groove out of
 // phase with the bar. Fast divisions (1/16, 1/32) fade a little per repeat —
 // a roll, not a buzz.
-// getGlitch() true = scatter: random slice lengths, random steps pulled from
-// the pattern's own hits, random gain/pitch. Same ghost clock, same in-phase release.
 const REPEAT_DECAY = 0.9   // gain per repeat at 1/16 and 1/32
 const REPEAT_FLOOR = 0.45  // rolls never fade below this
-const GLITCH_TICKS = [0.25, 0.25, 0.5, 0.5, 0.5, 1]  // slice lengths in steps, weighted
-const GLITCH_RATES = [0.5, 0.75, 1, 1, 1.5, 2]        // sample pitch per slice
-export function createTransport({ getPattern, getBpm, getSwing, getRepeat, getGlitch, onStep }) {
+export function createTransport({ getPattern, getBpm, getSwing, getRepeat, onStep }) {
   let timer = null
   let step = 0
   let ghost = 0       // where the pattern would be without the loop
@@ -614,27 +608,6 @@ export function createTransport({ getPattern, getBpm, getSwing, getRepeat, getGl
     const c = getContext()
     while (nextTime < c.currentTime + SCHEDULE_AHEAD) {
       const pattern = getPattern()
-      if (getGlitch?.()) {
-        loopStart = -1
-        const tick = GLITCH_TICKS[Math.floor(Math.random() * GLITCH_TICKS.length)]
-        const duration = stepDur() * tick
-        const hits = []
-        for (let i = 0; i < 16; i++) if (TRACKS.some((t) => pattern[t.id]?.[i])) hits.push(i)
-        const play = hits.length ? hits[Math.floor(Math.random() * hits.length)] : -1
-        if (play >= 0) {
-          const rate = GLITCH_RATES[Math.floor(Math.random() * GLITCH_RATES.length)]
-          const gain = 0.5 + Math.random() * 0.6
-          for (const t of TRACKS) {
-            const v = pattern[t.id]?.[play]
-            if (v) trigger(t.id, nextTime, v * gain, rate)
-          }
-        }
-        queue.push({ step: play, time: nextTime })
-        ghost = (ghost + tick) % 16
-        step = Math.floor(ghost) % 16
-        nextTime += duration
-        continue
-      }
       const len = getRepeat?.() || 0
       if (!len) {
         if (loopStart >= 0) step = Math.floor(ghost) % 16 // release: snap back in phase
@@ -660,7 +633,7 @@ export function createTransport({ getPattern, getBpm, getSwing, getRepeat, getGl
           const hitTime = step % 2 === 1
             ? nextTime + duration * trackSwing * SWING_DELAY_SCALE
             : nextTime
-          trigger(t.id, hitTime, v * roll, 1)
+          trigger(t.id, hitTime, v * roll)
           lastHit = step
         }
       }

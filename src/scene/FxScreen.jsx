@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import { RoundedBox } from '@react-three/drei'
 import * as THREE from 'three'
-import { actions, useStore } from '../state/store'
+import { actions, live, useStore } from '../state/store'
 import { filterFrequency } from '../audio/engine'
 import { FINISHES, getFinish } from '../finishes'
 import { BODY_H, BODY_W, PLATE_H, PLATE_Z, TOP_Y } from './layout'
@@ -55,9 +55,9 @@ const FINISH_POS = [-3.675, -1.225, 1.225, 3.675]
 // physical square key (RepeatKey), slice-length pill.
 const REPEAT_Y = 6.3
 const REPEAT_KEY = { x: 2.45, w: 0.6 }
-const GLITCH_KEY = { x: 0.55, w: 0.6 }
-// Tape stop: bottom centre of the panel, its own row below the skin keys.
-const TAPE_KEY = { x: 0, y: -5.95, w: 0.66 }
+// Tape stop: bottom centre of the panel, its own row below the skin keys —
+// not machined hardware, a strip of masking tape slapped over the face.
+const TAPE_KEY = { x: 0, y: -6.15, w: 3.1, h: 0.95 }
 const REPEAT_DIV = { x: 3.55, w: 1.1 }
 
 // Soft radial contact shadow shared by every fader cap — the single biggest
@@ -368,7 +368,7 @@ function drawLed(g, lx, ly, r, color, lit) {
     g.fillRect(lx - r * 3.6, ly - r * 3.6, r * 7.2, r * 7.2)
   }
   // unlit LEDs keep a dim tint of their colour, like real dark-lens lamps
-  g.fillStyle = lit ? color : `${color}59`
+  g.fillStyle = lit ? color : `${color}80`
   g.beginPath()
   g.arc(lx, ly, r, 0, Math.PI * 2)
   g.fill()
@@ -415,7 +415,7 @@ function drawKey(g, px, py, w, h, k, sans, text, { lit, arrows } = {}) {
   }
 }
 
-function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
+function drawReadout(canvas, texture, fx, fxMode, finishIndex, repeatOn) {
   const g = canvas.getContext('2d')
   const k = canvas.width / 1024
   const sx = canvas.width / EDITOR_W
@@ -431,20 +431,45 @@ function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
   g.clearRect(0, 0, canvas.width, canvas.height)
   g.textBaseline = 'middle'
 
-  // header: wordmark left, master lamp right
-  g.font = `600 ${44 * k}px ${sans}`
-  g.letterSpacing = `${6 * k}px`
-  g.fillStyle = INK
+  // header: wordmark left, master lamp right. 80s hardware badge — upright,
+  // speed-line stripes cut through the lower half, ghost offset behind, and
+  // a light speckle of worn ink
+  g.save()
+  g.translate(x(-4.15), y(6.3))
+  g.font = `700 ${52 * k}px ${sans}`
+  g.letterSpacing = `${2 * k}px`
   g.textAlign = 'left'
-  g.fillText('FX', x(-4.15), y(6.3))
+  let wseed = 3
+  const wrand = () => (wseed = (wseed * 16807) % 2147483647) / 2147483647
+  g.fillStyle = 'rgba(22,20,17,0.28)'
+  g.fillText('FX', 2.4 * k, 2 * k)
+  g.fillStyle = INK
+  g.fillText('FX', 0, 0)
+  // speed lines: stripes widen toward the baseline, the classic 80s cut
+  g.globalCompositeOperation = 'destination-out'
+  const ww = g.measureText('FX').width
+  for (const [sy2, sh] of [[4, 1.8], [10, 2.4], [16, 3]]) {
+    g.fillStyle = 'rgba(0,0,0,1)'
+    g.fillRect(-14 * k, sy2 * k, ww + 24 * k, sh * k)
+  }
+  g.globalCompositeOperation = 'destination-out'
+  for (let i = 0; i < 14; i++) {
+    g.fillStyle = `rgba(0,0,0,${0.2 + wrand() * 0.35})`
+    g.beginPath()
+    g.arc(wrand() * 84 * k, (wrand() - 0.4) * 52 * k, (0.5 + wrand() * 1.2) * k, 0, Math.PI * 2)
+    g.fill()
+  }
+  g.restore()
 
   // beat repeat: label, the 3D key's well shadow, slice-length pill
   g.textAlign = 'right'
   g.font = `600 ${18 * k}px ${sans}`
   g.letterSpacing = `${3 * k}px`
   g.fillStyle = INK
-  g.fillText('GLITCH', x(GLITCH_KEY.x - GLITCH_KEY.w / 2 - 0.18), y(REPEAT_Y))
-  g.fillText('REPEAT', x(REPEAT_KEY.x - REPEAT_KEY.w / 2 - 0.18), y(REPEAT_Y))
+  const repeatLabelRight = x(REPEAT_KEY.x - REPEAT_KEY.w / 2 - 0.18)
+  g.fillText('REPEAT', repeatLabelRight, y(REPEAT_Y))
+  // status LED left of the label — same language as the skin-row LEDs
+  drawLed(g, repeatLabelRight - g.measureText('REPEAT').width - 22 * k, y(REPEAT_Y), 4.5 * k, accent, repeatOn)
   drawKey(g, x(REPEAT_DIV.x - REPEAT_DIV.w / 2), y(REPEAT_Y + 0.19), REPEAT_DIV.w * sx, 0.38 * sy,
     k, sans, fxMode.repeat, { arrows: accent })
 
@@ -569,15 +594,8 @@ function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
   g.textAlign = 'center'
   g.font = `600 ${18 * k}px ${sans}`
   g.letterSpacing = `${5 * k}px`
-  g.fillStyle = 'rgba(22,20,17,0.55)'
+  g.fillStyle = 'rgba(22,20,17,0.72)'
   g.fillText('SKIN', x(0), y(-4.33))
-
-  // tape stop: printed name under the 3D key (FinishSelector row)
-  g.textAlign = 'center'
-  g.font = `600 ${16 * k}px ${sans}`
-  g.letterSpacing = `${2.5 * k}px`
-  g.fillStyle = INK
-  g.fillText('TAPE STOP', x(TAPE_KEY.x), y(-6.5))
 
   // status LED above each key, name below. No printed well: the 3D keys sit
   // ~0.3 above the print plane and the rig's pointer parallax shifts them
@@ -585,10 +603,10 @@ function drawReadout(canvas, texture, fx, fxMode, finishIndex) {
   // The contact shadow (3D, moves with the key) does the seating instead.
   FINISHES.forEach((item, index) => {
     const px = FINISH_POS[index]
-    drawLed(g, x(px), y(-4.22), 4.5 * k, item.accent, index === finishIndex)
-    g.font = `600 ${16 * k}px ${sans}`
+    drawLed(g, x(px), y(-4.22), 5.5 * k, item.accent, index === finishIndex)
+    g.font = `600 ${18 * k}px ${sans}`
     g.letterSpacing = `${2.5 * k}px`
-    g.fillStyle = index === finishIndex ? INK : 'rgba(22,20,17,0.4)'
+    g.fillStyle = index === finishIndex ? INK : 'rgba(22,20,17,0.68)'
     g.fillText(item.id.toUpperCase(), x(px), y(-5.28))
   })
 
@@ -648,9 +666,10 @@ function FxFader({ col, value, accent }) {
     mesh.scale.y = THREE.MathUtils.lerp(mesh.scale.y, target, k)
     // rest stays saturated below the bloom threshold; hover brightens the
     // line — the visible glow comes from the additive halo sprite, not bloom
+    // parked at 0% the index line goes quiet so live columns pop
     material.emissiveIntensity = THREE.MathUtils.lerp(
       material.emissiveIntensity,
-      hover || drag.current ? indexHover : indexRest,
+      hover || drag.current ? indexHover : indexRest * (value > 0.003 ? 1 : 0.3),
       k,
     )
   })
@@ -832,6 +851,7 @@ function FxFader({ col, value, accent }) {
           document.body.style.cursor = drag.current ? 'grabbing' : ''
         }}
         onPointerDown={(event) => {
+          if (live.fxMorph <= 0.9) return
           event.stopPropagation()
           drag.current = true
           event.target.setPointerCapture(event.pointerId)
@@ -868,6 +888,7 @@ function ModeButton({ col, x = col.x, y = 3.57, w = 1.74, h = 1.42 }) {
       }}
       onPointerOut={() => { document.body.style.cursor = '' }}
       onPointerDown={(event) => {
+        if (live.fxMorph <= 0.9) return
         event.stopPropagation()
         actions.cycleFxMode(col.key)
       }}
@@ -878,9 +899,270 @@ function ModeButton({ col, x = col.x, y = 3.57, w = 1.74, h = 1.42 }) {
   )
 }
 
-// Header latch keys (TAPE, REPEAT): a square hardware key built like the
-// skin keys — contact shadow, dark riser, cap. Sits proud when idle; engaged
-// it sinks into the panel and the cap lights with the accent.
+// Painter's tape: matte blue crepe paper — mottled base, fine crosswise
+// crepe ridges, creases, ragged torn ends, a peeled-up corner — colour AND
+// a matching bump
+// canvas, so the lit material lets the key light rake across the wrinkles.
+// Translucency + drop shadow live in the map's alpha (the reveal cascade
+// drives material.opacity to 1, same contract as capShadow). Deterministic
+// seeded rand only: this is a memoized module-scope texture pair.
+const tapeStrip = () => memo('fx-painters-tape', () => {
+  const W = 1408, H = 432
+  const x0 = 48, x1 = 1360, y0 = 70, y1 = 362
+  let seed = 7
+  const rand = () => (seed = (seed * 16807) % 2147483647) / 2147483647
+
+  // outline: straight long edges, fine ragged teeth on the torn ends
+  const path = new Path2D()
+  path.moveTo(x0 + 6, y0 + 4)
+  path.lineTo(x1 - 6, y0)
+  for (let yy = y0 + 6; yy < y1 - 4; yy += 7 + rand() * 9) {
+    path.lineTo(x1 + (rand() - 0.55) * 52 + (rand() < 0.18 ? 22 : 0), yy)
+  }
+  path.lineTo(x1 - 4, y1 - 2)
+  path.lineTo(x0 + 8, y1 + 2)
+  for (let yy = y1 - 8; yy > y0 + 8; yy -= 7 + rand() * 9) {
+    path.lineTo(x0 - (rand() - 0.55) * 52 - (rand() < 0.18 ? 22 : 0), yy)
+  }
+  path.closePath()
+  // creases shared by the colour and bump passes so light and shade agree
+  const creases = [[190, -0.5], [420, 0.28], [660, -0.2], [920, 0.42], [1180, -0.34]]
+  const crease = (g, cx, tilt, light, dark, lw) => {
+    const dx = tilt * 46
+    g.lineWidth = lw
+    g.strokeStyle = light
+    g.beginPath(); g.moveTo(cx + dx, y0 - 6); g.lineTo(cx - dx, y1 + 6); g.stroke()
+    g.strokeStyle = dark
+    g.beginPath(); g.moveTo(cx + dx + 3, y0 - 6); g.lineTo(cx - dx + 3, y1 + 6); g.stroke()
+  }
+
+  // ---- colour map ----
+  const c = document.createElement('canvas')
+  c.width = W; c.height = H
+  const g = c.getContext('2d')
+  // shadow: stacked offset fills instead of blur (ctx.filter is a Safari no-op)
+  g.save()
+  g.translate(5, 9)
+  g.fillStyle = 'rgba(15,13,10,0.08)'
+  g.fill(path)
+  g.translate(-2, -3)
+  g.fillStyle = 'rgba(15,13,10,0.10)'
+  g.fill(path)
+  g.restore()
+  // base: painter's-tape blue, a touch lighter through the middle
+  const base = g.createLinearGradient(0, y0, 0, y1)
+  base.addColorStop(0, 'rgba(62,102,190,0.97)')
+  base.addColorStop(0.3, 'rgba(84,126,212,0.97)')
+  base.addColorStop(0.62, 'rgba(70,112,200,0.97)')
+  base.addColorStop(1, 'rgba(54,90,172,0.97)')
+  g.fillStyle = base
+  g.fill(path)
+  g.save()
+  g.clip(path)
+  // crepe paper: soft mottled blotches, then fine crosswise ridges
+  for (let i = 0; i < 320; i++) {
+    const bx = x0 - 12 + rand() * (x1 - x0 + 24)
+    const by = y0 - 6 + rand() * (y1 - y0 + 12)
+    g.fillStyle = i % 2 ? 'rgba(255,255,255,0.045)' : 'rgba(24,44,110,0.05)'
+    g.beginPath()
+    g.ellipse(bx, by, 6 + rand() * 22, 3 + rand() * 9, rand() * Math.PI, 0, Math.PI * 2)
+    g.fill()
+  }
+  for (let xx = x0 - 16; xx < x1 + 16; xx += 4 + rand() * 3) {
+    g.fillStyle = xx % 2 ? 'rgba(255,255,255,0.05)' : 'rgba(24,44,110,0.045)'
+    g.fillRect(xx, y0 - 8, 1.2, y1 - y0 + 16)
+  }
+  for (const [cx, tilt] of creases) {
+    crease(g, cx, tilt, 'rgba(255,255,255,0.13)', 'rgba(20,40,100,0.13)', 2.5)
+  }
+  g.restore()
+  // darker cut edges, then loose threads sticking past the tears
+  g.strokeStyle = 'rgba(28,50,120,0.3)'
+  g.lineWidth = 2
+  g.stroke(path)
+  g.strokeStyle = 'rgba(180,200,240,0.75)'
+  g.lineWidth = 2
+  for (let i = 0; i < 11; i++) {
+    const ty = y0 + 14 + rand() * (y1 - y0 - 28)
+    const flip = i % 2 ? 1 : -1
+    const tx = flip > 0 ? x1 + 2 : x0 - 2
+    g.beginPath()
+    g.moveTo(tx, ty)
+    g.quadraticCurveTo(
+      tx + flip * (10 + rand() * 14), ty + (rand() - 0.5) * 10,
+      tx + flip * (20 + rand() * 24), ty + (rand() - 0.5) * 24,
+    )
+    g.stroke()
+  }
+  // sharpie lettering: each letter placed by hand — small deterministic
+  // jitter in baseline and tilt, with offset understrikes for ink bleed
+  g.save()
+  g.translate((x0 + x1) / 2, (y0 + y1) / 2 + 4)
+  g.rotate(-0.015)
+  g.font = '700 110px "Marker Felt", "Segoe Print", "Comic Sans MS", cursive'
+  g.textAlign = 'center'
+  g.textBaseline = 'middle'
+  const label = 'TAPE STOP'
+  const widths = [...label].map((ch) => g.measureText(ch).width)
+  const gap = 10
+  const total = widths.reduce((a, b) => a + b, 0) + gap * (label.length - 1)
+  let pen = -total / 2
+  for (let i = 0; i < label.length; i++) {
+    g.save()
+    g.translate(pen + widths[i] / 2, (rand() - 0.5) * 8)
+    g.rotate((rand() - 0.5) * 0.1)
+    g.fillStyle = 'rgba(16,16,20,0.3)'
+    g.fillText(label[i], 1.8, 1.8)
+    g.fillText(label[i], -1.2, 0.8)
+    g.fillStyle = 'rgba(16,16,20,0.92)'
+    g.fillText(label[i], 0, 0)
+    g.restore()
+    pen += widths[i] + gap
+  }
+  g.restore()
+
+  // peeled corner: the top-right corner has let go — bite it off past the
+  // fold and lay the flap back over the face, adhesive side up
+  const A = { x: x1 - 112, y: y0 + 2 }
+  const B = { x: x1 + 2, y: y0 + 98 }
+  const P = { x: x1 + 30, y: y0 - 24 }
+  const dxf = B.x - A.x, dyf = B.y - A.y
+  const tf = ((P.x - A.x) * dxf + (P.y - A.y) * dyf) / (dxf * dxf + dyf * dyf)
+  const C = { x: 2 * (A.x + tf * dxf) - P.x, y: 2 * (A.y + tf * dyf) - P.y }
+  const flap = (gg) => {
+    gg.beginPath()
+    gg.moveTo(A.x, A.y)
+    gg.quadraticCurveTo(A.x - 26, (A.y + C.y) / 2 - 14, C.x, C.y)
+    gg.quadraticCurveTo((B.x + C.x) / 2 - 10, (B.y + C.y) / 2 + 16, B.x, B.y)
+    gg.closePath()
+  }
+  g.save()
+  g.globalCompositeOperation = 'destination-out'
+  g.beginPath()
+  g.moveTo(A.x, A.y)
+  g.lineTo(W, y0 - 28)
+  g.lineTo(W, B.y)
+  g.lineTo(B.x, B.y)
+  g.closePath()
+  g.fill()
+  g.restore()
+  // flap shadow on the face (stacked offset fills; no ctx.filter)
+  g.save()
+  g.translate(6, 10)
+  g.fillStyle = 'rgba(15,13,10,0.10)'
+  flap(g); g.fill()
+  g.translate(-2, -4)
+  g.fillStyle = 'rgba(15,13,10,0.12)'
+  flap(g); g.fill()
+  g.restore()
+  // adhesive side: paler and cooler than the face, brightest at the tip
+  const under = g.createLinearGradient(A.x + 70, A.y + 60, C.x, C.y)
+  under.addColorStop(0, 'rgba(148,170,216,0.98)')
+  under.addColorStop(0.45, 'rgba(196,210,238,0.98)')
+  under.addColorStop(1, 'rgba(232,238,250,0.98)')
+  g.fillStyle = under
+  flap(g); g.fill()
+  g.strokeStyle = 'rgba(60,88,150,0.5)'
+  g.lineWidth = 2
+  g.stroke()
+  // the fold itself catches the light
+  g.strokeStyle = 'rgba(235,242,255,0.8)'
+  g.lineWidth = 3.5
+  g.beginPath(); g.moveTo(A.x, A.y); g.lineTo(B.x, B.y); g.stroke()
+
+  // ---- bump map: weave + creases only, mid-grey base ----
+  const b = document.createElement('canvas')
+  b.width = W; b.height = H
+  const bg = b.getContext('2d')
+  bg.fillStyle = '#808080'
+  bg.fillRect(0, 0, W, H)
+  bg.fillStyle = 'rgba(0,0,0,0.18)'
+  for (let xx = x0 - 16; xx < x1 + 16; xx += 4 + rand() * 3) bg.fillRect(xx, 0, 1.2, H)
+  for (let i = 0; i < 210; i++) {
+    bg.fillStyle = i % 2 ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.12)'
+    bg.beginPath()
+    bg.ellipse(rand() * W, rand() * H, 5 + rand() * 18, 3 + rand() * 8, rand() * Math.PI, 0, Math.PI * 2)
+    bg.fill()
+  }
+  for (const [cx, tilt] of creases) {
+    crease(bg, cx, tilt, 'rgba(255,255,255,0.5)', 'rgba(0,0,0,0.45)', 4)
+  }
+  // peeled flap: a smooth raised pad (no crepe on the adhesive side) with
+  // a hard bright fold line
+  bg.fillStyle = '#a8a8a8'
+  flap(bg); bg.fill()
+  bg.strokeStyle = 'rgba(255,255,255,0.75)'
+  bg.lineWidth = 5
+  bg.beginPath(); bg.moveTo(A.x, A.y); bg.lineTo(B.x, B.y); bg.stroke()
+  return { map: toTexture(c, { srgb: true }), bump: toTexture(b) }
+})
+
+// Tape stop control: the strip above, flush on the panel with a slight
+// skew. Lit MeshPhysicalMaterial (unlike the print plane) so the key light
+// rakes the bump-mapped crepe and creases. Tape can't sink or light like a
+// key — held, it drags like the tape it's stopping: a subtle sag, skew and
+// stretch with a faint reel-judder flutter.
+function TapeKey({ x, y, w, h, active, onPress, onRelease }) {
+  const [hover, setHover] = useState(false)
+  const mesh = useRef()
+  useFrame(({ clock }, dt) => {
+    const m = mesh.current
+    if (!m) return
+    const ease = 1 - Math.exp(-18 * Math.min(dt, 0.05))
+    const z = active ? 0.245 : hover ? 0.275 : 0.26
+    m.position.z += (z - m.position.z) * ease
+    // held: the strip drags like the tape it's stopping — a subtle sag,
+    // skew and stretch, with a faint reel-judder flutter
+    const t = clock.elapsedTime
+    const flutter = active ? Math.sin(t * 21) * 0.004 + Math.sin(t * 47) * 0.002 : 0
+    m.rotation.z += ((active ? -0.075 : -0.045) + flutter - m.rotation.z) * ease
+    m.position.y += ((active ? y - 0.03 : y) - m.position.y) * ease
+    m.scale.x += ((active ? 1.015 : 1) - m.scale.x) * ease
+    m.scale.y += ((active ? 0.97 : 1) - m.scale.y) * ease
+  })
+  return (
+    <mesh
+      ref={mesh}
+      position={[x, y, 0.26]}
+      rotation={[0, 0, -0.045]}
+      renderOrder={5}
+      onPointerOver={(event) => {
+        event.stopPropagation()
+        setHover(true)
+        document.body.style.cursor = 'pointer'
+      }}
+      onPointerOut={() => { setHover(false); document.body.style.cursor = '' }}
+      onPointerDown={(event) => {
+        if (live.fxMorph <= 0.9) return
+        event.stopPropagation()
+        // momentary: hold while pressed, wherever the pointer wanders
+        event.target.setPointerCapture(event.pointerId)
+        onPress()
+      }}
+      onPointerUp={onRelease}
+      onPointerCancel={onRelease}
+      onLostPointerCapture={onRelease}
+    >
+      <planeGeometry args={[w, h]} />
+      <meshPhysicalMaterial
+        map={tapeStrip().map}
+        bumpMap={tapeStrip().bump}
+        bumpScale={0.5}
+        roughness={0.78}
+        metalness={0}
+        envMapIntensity={0.7}
+        transparent
+        opacity={0}
+        depthWrite={false}
+        userData={{ fxVisual: true }}
+      />
+    </mesh>
+  )
+}
+
+// Header latch key (REPEAT): a square hardware key built like the
+// skin keys — contact shadow, dark riser, cap. The cap wears the accent
+// even at rest; engaged it sinks into the panel and lights up from within.
 function HeaderKey({ x, y = REPEAT_Y, w, active, accent, onPress, onRelease }) {
   const [hover, setHover] = useState(false)
   const cap = useRef()
@@ -904,6 +1186,7 @@ function HeaderKey({ x, y = REPEAT_Y, w, active, accent, onPress, onRelease }) {
       }}
       onPointerOut={() => { setHover(false); document.body.style.cursor = '' }}
       onPointerDown={(event) => {
+        if (live.fxMorph <= 0.9) return
         event.stopPropagation()
         // momentary keys hold while pressed, wherever the pointer wanders
         if (onRelease) event.target.setPointerCapture(event.pointerId)
@@ -924,7 +1207,7 @@ function HeaderKey({ x, y = REPEAT_Y, w, active, accent, onPress, onRelease }) {
         </RoundedBox>
         <RoundedBox args={[w, w, 0.16]} radius={0.07} smoothness={5}>
           <meshPhysicalMaterial
-            color={active ? accent : '#3a3731'}
+            color={accent}
             emissive={accent}
             emissiveIntensity={0}
             roughness={0.35}
@@ -965,6 +1248,7 @@ function FinishSelector({ selected }) {
         }}
         onPointerOut={() => { document.body.style.cursor = '' }}
         onPointerDown={(event) => {
+          if (live.fxMorph <= 0.9) return
           event.stopPropagation()
           actions.setFinish(index)
         }}
@@ -1039,14 +1323,17 @@ const settle = (value) => {
   return 1 + 1.55 * q * q * q + 0.55 * q * q
 }
 
+const noRaycast = () => null
+
 export default function FxScreen({ morph }) {
-  const { fx, fxMode, finish, repeat, tape, glitch } = useStore()
+  const { fx, fxMode, finish, repeat, tape } = useStore()
   const activeFinish = getFinish(finish)
   // frame loop lerps toward this; allocating it per frame was GC churn
   const accentColor = useMemo(() => new THREE.Color(activeFinish.accent), [activeFinish.accent])
   const root = useRef()
   const visuals = useRef()
   const hitLayer = useRef()
+  const canClick = useRef(null)
   const backingMaterial = useRef()
   const shaderMaterial = useRef()
 
@@ -1073,8 +1360,8 @@ export default function FxScreen({ morph }) {
   }), [])
 
   useEffect(() => {
-    drawReadout(readoutCanvas, readoutTexture, fx, fxMode, finish)
-  }, [fx, fxMode, finish, readoutCanvas, readoutTexture])
+    drawReadout(readoutCanvas, readoutTexture, fx, fxMode, finish, repeat)
+  }, [fx, fxMode, finish, repeat, readoutCanvas, readoutTexture])
 
   // The chassis wear decals (scratch overlay etc.) render at order 2 with no
   // depth write, so they'd draw across the editor. Lift every editor mesh
@@ -1146,6 +1433,20 @@ export default function FxScreen({ morph }) {
       })
     }
     if (hitLayer.current) hitLayer.current.visible = mix > 0.9
+    // pointer hygiene: three's raycaster ignores `visible`, so the panel's
+    // handler meshes (mode pills, faders, tape, keys) were still catching
+    // clicks on the resting machine. Swap the whole subtree's raycast off
+    // whenever the editor isn't open; deleting the override restores the
+    // prototype method (no mesh here sets a raycast prop of its own).
+    const interactive = mix > 0.9
+    if (interactive !== canClick.current) {
+      canClick.current = interactive
+      group.traverse((o) => {
+        if (!o.isMesh) return
+        if (interactive) delete o.raycast
+        else o.raycast = noRaycast
+      })
+    }
   })
 
   return (
@@ -1237,10 +1538,8 @@ export default function FxScreen({ morph }) {
           {FADERS.map((col) => (
             <ModeButton key={col.key} col={col} />
           ))}
-          <HeaderKey {...TAPE_KEY} active={tape} accent={activeFinish.accent}
+          <TapeKey {...TAPE_KEY} active={tape}
             onPress={() => actions.setTape(true)} onRelease={() => actions.setTape(false)} />
-          <HeaderKey {...GLITCH_KEY} active={glitch} accent={activeFinish.accent}
-            onPress={() => actions.setGlitch(true)} onRelease={() => actions.setGlitch(false)} />
           <HeaderKey {...REPEAT_KEY} active={repeat} accent={activeFinish.accent} onPress={actions.toggleRepeat} />
           <ModeButton col={{ key: 'repeat' }} x={REPEAT_DIV.x} y={REPEAT_Y} w={REPEAT_DIV.w + 0.1} h={0.5} />
           <FinishSelector selected={finish} />

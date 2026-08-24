@@ -59,7 +59,6 @@ let state = {
   fxMode: { filter: 'LP', drive: 'SOFT', delay: '1/8', space: 'PLATE', repeat: '1/4' },
   repeat: false,
   tape: false,
-  glitch: false,
 }
 
 // Mutable mirror the render loop reads every frame without triggering React.
@@ -86,7 +85,6 @@ const transport = createTransport({
   getBpm: () => state.bpm,
   getSwing: (trackId = state.track) => state.swing[trackId] ?? 0,
   getRepeat: () => (state.repeat ? REPEAT_STEPS[state.fxMode.repeat] : 0),
-  getGlitch: () => state.glitch,
   onStep: (s) => {
     live.step = s
     if (s >= 0) {
@@ -155,9 +153,6 @@ export const actions = {
     if (on === state.tape) return
     setAudioTape(on)
     set({ tape: on })
-  },
-  setGlitch(on) {
-    if (on !== state.glitch) set({ glitch: on })
   },
   toggleRepeat() {
     modeTick()

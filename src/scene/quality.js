@@ -44,7 +44,8 @@ export const QUALITY_PRESETS = {
 export const QUALITY_NAMES = Object.keys(QUALITY_PRESETS)
 
 export function qualityNameForFactor(factor) {
-  if (factor >= 0.74) return 'high'
+  // ponytail: phones never earn 'high' — MSAA 4 + dpr 1.5 melts tile GPUs
+  if (factor >= 0.74) return COARSE ? 'balanced' : 'high'
   if (factor >= 0.34) return 'balanced'
   return 'performance'
 }

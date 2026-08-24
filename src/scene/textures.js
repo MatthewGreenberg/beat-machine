@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { COARSE } from './quality'
 
 // Procedural canvas textures — no external asset pipeline, everything is
 // generated once at module scope and shared.
@@ -93,7 +94,8 @@ export function toTexture(c, { srgb = false, repeat = 1, aniso = 8 } = {}) {
   t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace
   t.wrapS = t.wrapT = THREE.RepeatWrapping
   t.repeat.set(repeat, repeat)
-  t.anisotropy = aniso
+  // ponytail: aniso > 4 is invisible at phone size but costs real texture bandwidth
+  t.anisotropy = COARSE ? Math.min(aniso, 4) : aniso
   t.needsUpdate = true
   return t
 }
